@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 27
+  productGUID: 3e4e1dff34b64bf2a01b6f0172031f90
+  AndroidProfiler: 0
+  AndroidFilterTouchesWhenObscured: 0
+  defaultScreenOrientation: 0
+  targetDevice: 2
+  useOnDemandResources: 0
+  accelerometerFrequency: 60
+  companyName: Indie Studio
+  productName: Jetski Runner
+  defaultCursor: {fileID: 0}
+  cursorHotspot: {x: 0, y: 0}
+  m_SplashScreenBackgroundColor: {r: 0.12, g: 0.48, b: 0.73, a: 1}
+  applicationIdentifier:
+    Android: com.indiestudio.jetskirunner
+  AndroidBundleVersionCode: 1
+  bundleVersion: 0.1.0
+  scriptingBackend:
+    Android: 1
+  apiCompatibilityLevelPerPlatform:
+    Android: 6
+  activeInputHandler: 0
+  companyName: Indie Studio
+  productName: Jetski Runner
+  defaultScreenWidth: 576
+  defaultScreenHeight: 1024
+  defaultIsNativeResolution: 0
+  resizableWindow: 0
+  fullscreenMode: 3
+  runInBackground: 1
