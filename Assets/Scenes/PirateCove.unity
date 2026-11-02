@@ -153,20 +153,20 @@ MonoBehaviour:
   laneWidth: 2.9
   spawnAhead: 72
   tropicalWaterShader: {fileID: 4800000, guid: 954cfaa3fef93df42b532996f61172ad, type: 3}
-  goldPrefab: {fileID: 7494983126388791837, guid: e8782001ca918a240b05987e98b4603e, type: 3}
+  goldPrefab: {fileID: 2116655709968208137, guid: 08ac0101da20a7804a10f34741ef69d3, type: 3}
   riderPrefab: {fileID: 6393364829012982562, guid: 686d467826214409a92112c3adba35a1, type: 3}
   obstaclePrefabs:
-  - {fileID: 5651491379246966403, guid: b26acda0f66ccf342830ef882a9024e0, type: 3}
+  - {fileID: 3381627655719016453, guid: 0af3272f183cb8f4bbb809f42b94dd73, type: 3}
   - {fileID: 8529008336469523638, guid: 114353d0c54bedb479f864ef43759429, type: 3}
   - {fileID: 3999505608473059212, guid: 7337e40be7207254fbf7d4b305a2507d, type: 3}
   - {fileID: 4951482104945820229, guid: 98353ddf2ff47a748bcf426c9fc90fc1, type: 3}
   fuelPrefab: {fileID: 8298085135648610545, guid: 084bbbc3c198d42459ca9097208e8aad, type: 3}
   rampPrefab: {fileID: 907604286568809314, guid: e7b654c08333b0441825846cc7d81032, type: 3}
-  pirateShipPrefab: {fileID: 5959558752154088324, guid: 3dc25c892e93ce240bfd9805f7becadf, type: 3}
+  pirateShipPrefab: {fileID: 7949933564994477431, guid: c5f49a698f3acd987a81df7728389ed8, type: 3}
   shipSailSpeed: 7
-  shipLength: 8
+  shipLength: 8.5
   sideRockPrefab: {fileID: 4951482104945820229, guid: 98353ddf2ff47a748bcf426c9fc90fc1, type: 3}
-  dockBarrelPrefab: {fileID: 5651491379246966403, guid: b26acda0f66ccf342830ef882a9024e0, type: 3}
+  dockBarrelPrefab: {fileID: 3381627655719016453, guid: 0af3272f183cb8f4bbb809f42b94dd73, type: 3}
   skyShader: {fileID: 4800000, guid: 1d5c9ee08de69d74b992fd2ab34ea3c2, type: 3}
   sprayMaterial: {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
   iceTunnelPrefab: {fileID: 5637465107768741935, guid: 705012caec18f504d888cae9878aec1e, type: 3}
