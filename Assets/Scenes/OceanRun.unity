@@ -149,6 +149,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::JetskiRunnerGame
   environment: 0
+  biomeLength: 320
+  biomeBlend: 24
   forwardSpeed: 12
   laneWidth: 2.9
   spawnAhead: 72

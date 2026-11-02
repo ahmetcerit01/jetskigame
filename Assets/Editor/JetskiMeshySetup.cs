@@ -23,7 +23,7 @@ public static class JetskiMeshySetup
     static readonly string[] Scenes = { "Assets/Scenes/OceanRun.unity", "Assets/Scenes/PirateCove.unity", "Assets/Scenes/IceCave.unity" };
 
     // Proportions measured on the red jetski mesh (0 = nose, 1 = tail; heights as a fraction of the hull height).
-    const float JetskiLength = 2.6f, RiderHeight = 1.0f, Waterline = .35f;
+    const float JetskiLength = 2.6f, RiderHeight = 1.35f, Waterline = .35f;
     const float SeatAlong = .56f, SeatHeight = .75f;
     const float GripAlong = .41f, GripHeight = .97f, GripSide = .39f;
 
