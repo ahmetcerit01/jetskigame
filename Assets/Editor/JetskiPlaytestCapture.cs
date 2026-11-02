@@ -27,6 +27,8 @@ public static class JetskiPlaytestCapture
         for (int i = 0; i < args.Length - 1; i++) if (args[i] == "-captureDir") dir = args[i + 1];
         Directory.CreateDirectory(dir);
         SessionState.SetString(Key + "dir", Path.GetFullPath(dir));
+        var active = EditorSceneManager.GetActiveScene().path;
+        SessionState.SetString(Key + "restore", string.IsNullOrEmpty(active) ? Scenes[0] : active);
         StartScene(0);
     }
 
@@ -72,6 +74,9 @@ public static class JetskiPlaytestCapture
             {
                 SessionState.EraseInt(Key + "scene");
                 EditorApplication.update -= Tick;
+                // reopen the scene the user had open instead of leaving the editor in the last captured scene
+                string restore = SessionState.GetString(Key + "restore", Scenes[0]);
+                EditorApplication.delayCall += () => { if (!EditorApplication.isPlaying && File.Exists(restore)) EditorSceneManager.OpenScene(restore); };
                 Debug.Log("PLAYTEST CAPTURE DONE: " + SessionState.GetString(Key + "dir", ""));
                 if (Application.isBatchMode) EditorApplication.delayCall += () => EditorApplication.Exit(0);
             }

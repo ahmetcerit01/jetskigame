@@ -3,8 +3,15 @@ using UnityEngine;
 
 public sealed class JetskiRunnerGame : MonoBehaviour
 {
-    public enum EnvironmentPreset { TropicalRun, PirateCove, IceCave }
+    // Biomes in run order. The run cycles through them by distance and loops back to the first.
+    public enum EnvironmentPreset { TropicalRun, PirateCove, IceCave, Volcanic, Storm }
+    public const int BiomeCount = 5;
+    public static readonly string[] BiomeNames = { "TROPICAL ISLAND", "PIRATE HARBOR", "CAVE PASSAGE", "VOLCANIC ZONE", "STORM" };
+    [Tooltip("Biome the run starts in; the cycle continues from here.")]
     [SerializeField] EnvironmentPreset environment = EnvironmentPreset.TropicalRun;
+    [Header("Biome cycle")]
+    [SerializeField] float biomeLength = 320f;
+    [SerializeField] float biomeBlend = 24f;
     [Header("Run")]
     [SerializeField] float forwardSpeed = 12f;
     [SerializeField] float laneWidth = 2.3f;
@@ -37,8 +44,15 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     readonly List<ParticleSystem> sprays = new();
     Camera gameCamera;
     readonly List<Transform> recycledWater = new();
-    readonly List<Transform> iceSegments = new();
     readonly List<GameObject> spawned = new();
+    Light sun;
+    Material skyMaterial;
+    ParticleSystem rain, embers;
+    float nextCaveAt, tunnelMinZ, lightningTimer = 3f, lightningFlash, bannerTime;
+    bool tunnelMeasured;
+    EnvironmentPreset shownBiome;
+    Atmosphere atmosphere;
+    GUIStyle bannerStyle;
     Material sea, seaLight, foam, gold, orange, cyan, charcoal, skin, wood, rock, palmLeaf;
     Material waterSurfaceMaterial;
     static Shader fallbackShader;
@@ -51,6 +65,161 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     float CurrentSpeed => crashed ? 0f : (forwardSpeed + Mathf.Min(distanceTravelled * .004f, 6f)) * (boostLeft > 0 ? boostMultiplier : 1f);
     float JumpOffset => jumpTime < 0 ? 0f : 4f * jumpHeight * jumpTime * (1f - jumpTime);
 
+    // Read-only state for the HUD, tests and other systems.
+    public EnvironmentPreset CurrentBiome => BiomeAt(distanceTravelled);
+    public float DistanceTravelled => distanceTravelled;
+    public float BiomeLength => biomeLength;
+    public int Coins => coins;
+    public bool Crashed => crashed;
+    public Atmosphere CurrentAtmosphere => atmosphere;
+    public string BannerText => bannerTime > 0 ? BiomeNames[(int)shownBiome] : null;
+    // Play-mode tests drive a full cycle without crashing; obstacles are smashed as if boosting.
+    public static bool TestInvulnerable;
+
+    public EnvironmentPreset BiomeAt(float distance) =>
+        (EnvironmentPreset)(((int)environment + Mathf.FloorToInt(Mathf.Max(0f, distance) / biomeLength)) % BiomeCount);
+
+    // ---------- biome atmosphere ----------
+
+    [System.Serializable]
+    public struct Atmosphere
+    {
+        public Color sunColor; public float sunIntensity; public Vector3 sunEuler;
+        public Color ambientSky, ambientEquator, ambientGround;
+        public Color fog; public float fogStart, fogEnd;
+        public Color skyTop, skyHorizon, skyBelow;
+        public Color waterShallow, waterDeep, waterFar, waterTrough, waterSky; public float waveSpeed;
+        public Color mountain, cloud;
+        public float rain, embers, lightning, volcano, fov;
+
+        public static Atmosphere Lerp(Atmosphere a, Atmosphere b, float t)
+        {
+            Color C(Color x, Color y) => Color.Lerp(x, y, t);
+            float F(float x, float y) => Mathf.Lerp(x, y, t);
+            return new Atmosphere
+            {
+                sunColor = C(a.sunColor, b.sunColor), sunIntensity = F(a.sunIntensity, b.sunIntensity), sunEuler = Vector3.Lerp(a.sunEuler, b.sunEuler, t),
+                ambientSky = C(a.ambientSky, b.ambientSky), ambientEquator = C(a.ambientEquator, b.ambientEquator), ambientGround = C(a.ambientGround, b.ambientGround),
+                fog = C(a.fog, b.fog), fogStart = F(a.fogStart, b.fogStart), fogEnd = F(a.fogEnd, b.fogEnd),
+                skyTop = C(a.skyTop, b.skyTop), skyHorizon = C(a.skyHorizon, b.skyHorizon), skyBelow = C(a.skyBelow, b.skyBelow),
+                waterShallow = C(a.waterShallow, b.waterShallow), waterDeep = C(a.waterDeep, b.waterDeep), waterFar = C(a.waterFar, b.waterFar),
+                waterTrough = C(a.waterTrough, b.waterTrough), waterSky = C(a.waterSky, b.waterSky), waveSpeed = F(a.waveSpeed, b.waveSpeed),
+                mountain = C(a.mountain, b.mountain), cloud = C(a.cloud, b.cloud),
+                rain = F(a.rain, b.rain), embers = F(a.embers, b.embers), lightning = F(a.lightning, b.lightning), volcano = F(a.volcano, b.volcano), fov = F(a.fov, b.fov),
+            };
+        }
+    }
+
+    static Color Rgb(float r, float g, float b) => new(r, g, b, 1f);
+
+    public static Atmosphere AtmosphereOf(EnvironmentPreset biome)
+    {
+        switch (biome)
+        {
+            case EnvironmentPreset.PirateCove: return new Atmosphere   // golden late afternoon over the harbor
+            {
+                sunColor = Rgb(1f, .83f, .6f), sunIntensity = 1.1f, sunEuler = new Vector3(30, -52, 0),
+                ambientSky = Rgb(.8f, .74f, .68f), ambientEquator = Rgb(.72f, .62f, .5f), ambientGround = Rgb(.36f, .4f, .42f),
+                fog = Rgb(.93f, .8f, .64f), fogStart = 55, fogEnd = 400,
+                skyTop = Rgb(.32f, .48f, .76f), skyHorizon = Rgb(.99f, .8f, .58f), skyBelow = Rgb(.72f, .7f, .66f),
+                waterShallow = Rgb(.13f, .6f, .7f), waterDeep = Rgb(.05f, .43f, .64f), waterFar = Rgb(.6f, .6f, .62f), waterTrough = Rgb(.03f, .33f, .53f), waterSky = Rgb(.97f, .82f, .64f), waveSpeed = 1f,
+                mountain = Rgb(.52f, .5f, .44f), cloud = Rgb(1f, .88f, .76f), fov = 50,
+            };
+            case EnvironmentPreset.IceCave: return new Atmosphere      // dim glacial tunnel
+            {
+                sunColor = Rgb(.36f, .88f, 1f), sunIntensity = .8f, sunEuler = new Vector3(70, -20, 0),
+                ambientSky = Rgb(.27f, .55f, .65f), ambientEquator = Rgb(.25f, .52f, .62f), ambientGround = Rgb(.18f, .4f, .5f),
+                fog = Rgb(.015f, .18f, .24f), fogStart = 40, fogEnd = 140,
+                skyTop = Rgb(.02f, .14f, .2f), skyHorizon = Rgb(.03f, .2f, .26f), skyBelow = Rgb(.02f, .14f, .2f),
+                waterShallow = Rgb(.05f, .45f, .5f), waterDeep = Rgb(.01f, .25f, .33f), waterFar = Rgb(.01f, .17f, .23f), waterTrough = Rgb(.005f, .15f, .21f), waterSky = Rgb(.2f, .62f, .72f), waveSpeed = .8f,
+                mountain = Rgb(.3f, .5f, .6f), cloud = Rgb(.35f, .45f, .5f), fov = 56,
+            };
+            case EnvironmentPreset.Volcanic: return new Atmosphere     // ash haze lit by lava
+            {
+                sunColor = Rgb(1f, .46f, .2f), sunIntensity = .95f, sunEuler = new Vector3(24, -30, 0),
+                ambientSky = Rgb(.56f, .3f, .22f), ambientEquator = Rgb(.46f, .23f, .16f), ambientGround = Rgb(.18f, .09f, .06f),
+                fog = Rgb(.34f, .14f, .08f), fogStart = 35, fogEnd = 270,
+                skyTop = Rgb(.17f, .06f, .06f), skyHorizon = Rgb(.86f, .36f, .15f), skyBelow = Rgb(.3f, .1f, .06f),
+                waterShallow = Rgb(.2f, .11f, .09f), waterDeep = Rgb(.11f, .055f, .05f), waterFar = Rgb(.38f, .15f, .08f), waterTrough = Rgb(.06f, .03f, .03f), waterSky = Rgb(.95f, .46f, .2f), waveSpeed = .9f,
+                mountain = Rgb(.15f, .11f, .11f), cloud = Rgb(.36f, .26f, .23f), embers = 1, volcano = 1, fov = 52,
+            };
+            case EnvironmentPreset.Storm: return new Atmosphere        // overcast squall, rain and lightning
+            {
+                sunColor = Rgb(.66f, .73f, .82f), sunIntensity = .55f, sunEuler = new Vector3(60, -10, 0),
+                ambientSky = Rgb(.4f, .46f, .52f), ambientEquator = Rgb(.31f, .37f, .41f), ambientGround = Rgb(.15f, .18f, .2f),
+                fog = Rgb(.33f, .38f, .42f), fogStart = 22, fogEnd = 210,
+                skyTop = Rgb(.17f, .2f, .24f), skyHorizon = Rgb(.43f, .48f, .51f), skyBelow = Rgb(.3f, .35f, .38f),
+                waterShallow = Rgb(.13f, .31f, .34f), waterDeep = Rgb(.07f, .2f, .24f), waterFar = Rgb(.31f, .37f, .41f), waterTrough = Rgb(.04f, .13f, .16f), waterSky = Rgb(.46f, .51f, .56f), waveSpeed = 1.7f,
+                mountain = Rgb(.22f, .26f, .28f), cloud = Rgb(.3f, .33f, .36f), rain = 1, lightning = 1, fov = 50,
+            };
+            default: return new Atmosphere                              // bright tropical midday
+            {
+                sunColor = Rgb(1f, .95f, .86f), sunIntensity = 1.15f, sunEuler = new Vector3(48, -32, 0),
+                ambientSky = Rgb(.72f, .82f, .92f), ambientEquator = Rgb(.6f, .74f, .8f), ambientGround = Rgb(.32f, .52f, .58f),
+                fog = Rgb(.78f, .87f, .93f), fogStart = 60, fogEnd = 470,
+                skyTop = Rgb(.36f, .62f, .84f), skyHorizon = Rgb(.8f, .88f, .93f), skyBelow = Rgb(.55f, .75f, .88f),
+                waterShallow = Rgb(.13f, .72f, .83f), waterDeep = Rgb(.06f, .56f, .78f), waterFar = Rgb(.33f, .66f, .84f), waterTrough = Rgb(.03f, .42f, .68f), waterSky = Rgb(.8f, .89f, .95f), waveSpeed = 1f,
+                mountain = Rgb(.43f, .56f, .54f), cloud = Rgb(1f, 1f, 1f), fov = 50,
+            };
+        }
+    }
+
+    // Atmosphere at a run distance: cross-fades across each biome boundary over +-biomeBlend metres.
+    public Atmosphere AtmosphereAt(float distance)
+    {
+        float boundary = Mathf.Round(distance / biomeLength) * biomeLength;
+        var from = AtmosphereOf(BiomeAt(boundary - 1f));
+        var to = AtmosphereOf(BiomeAt(boundary + 1f));
+        float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(boundary - biomeBlend, boundary + biomeBlend, distance));
+        var result = Atmosphere.Lerp(from, to, t);
+        // a thicker haze right at the border hides far scenery popping between biomes
+        float gate = 1f - Mathf.Abs(t * 2f - 1f);
+        result.fogEnd *= 1f - .45f * gate;
+        return result;
+    }
+
+    void ApplyAtmosphere()
+    {
+        atmosphere = AtmosphereAt(distanceTravelled);
+        var a = atmosphere;
+        if (a.lightning > .5f && !crashed)
+        {
+            lightningTimer -= Time.deltaTime;
+            if (lightningTimer <= 0f) { lightningFlash = 1f; lightningTimer = Random.Range(2.2f, 5.5f); }
+        }
+        lightningFlash = Mathf.MoveTowards(lightningFlash, 0f, Time.deltaTime * 4.5f);
+        float flash = lightningFlash * a.lightning * (Mathf.Sin(lightningFlash * 40f) > -.3f ? 1f : .3f);
+
+        sun.color = Color.Lerp(a.sunColor, Color.white, flash);
+        sun.intensity = a.sunIntensity + flash * 1.6f;
+        sun.transform.rotation = Quaternion.Euler(a.sunEuler);
+        RenderSettings.ambientSkyColor = a.ambientSky + Color.white * flash * .5f;
+        RenderSettings.ambientEquatorColor = a.ambientEquator + Color.white * flash * .4f;
+        RenderSettings.ambientGroundColor = a.ambientGround;
+        RenderSettings.fogColor = Color.Lerp(a.fog, Rgb(.8f, .85f, .95f), flash * .6f);
+        RenderSettings.fogStartDistance = a.fogStart; RenderSettings.fogEndDistance = a.fogEnd;
+        if (gameCamera) gameCamera.backgroundColor = RenderSettings.fogColor;
+        if (skyMaterial)
+        {
+            skyMaterial.SetColor("_Top", Color.Lerp(a.skyTop, Rgb(.75f, .8f, .95f), flash * .7f));
+            skyMaterial.SetColor("_Horizon", Color.Lerp(a.skyHorizon, Rgb(.9f, .92f, 1f), flash * .7f));
+            skyMaterial.SetColor("_Below", a.skyBelow);
+        }
+        if (waterSurfaceMaterial && waterSurfaceMaterial.HasProperty("_Shallow"))
+        {
+            waterSurfaceMaterial.SetColor("_Shallow", a.waterShallow); waterSurfaceMaterial.SetColor("_Deep", a.waterDeep);
+            waterSurfaceMaterial.SetColor("_Far", a.waterFar); waterSurfaceMaterial.SetColor("_Trough", a.waterTrough);
+            waterSurfaceMaterial.SetColor("_Sky", Color.Lerp(a.waterSky, Color.white, flash * .5f)); waterSurfaceMaterial.SetFloat("_Speed", a.waveSpeed);
+        }
+        scenery?.SetAtmosphere(a.mountain, a.cloud, a.volcano);
+        if (rain) { var e = rain.emission; e.rateOverTime = 1400f * a.rain; }
+        if (embers) { var e = embers.emission; e.rateOverTime = 70f * a.embers; }
+
+        var biome = CurrentBiome;
+        if (biome != shownBiome) { shownBiome = biome; bannerTime = 2.8f; }
+        bannerTime = Mathf.Max(0f, bannerTime - Time.deltaTime);
+    }
+
     void Start()
     {
         Application.targetFrameRate = 60;
@@ -58,10 +227,12 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         CreateLightingAndSky();
         CreateOcean();
         CreatePlayer();
-        if (environment == EnvironmentPreset.IceCave) CreateIceCave();
-        else CreateShore();
         CreateCamera();
+        CreateShore();
         CreateSpray();
+        CreateWeather();
+        shownBiome = CurrentBiome; bannerTime = 2.8f;
+        ApplyAtmosphere();
         CreateCoinRow(1, 25f, 4);
         CreateCoinRow(0, 54f, 3);
     }
@@ -94,10 +265,11 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             var velocity = spray.velocityOverLifetime; velocity.z = -speed;
             var emission = spray.emission; emission.enabled = jumpTime < 0;
         }
+        ApplyAtmosphere();
         FollowCamera();
         SpawnShoreUpTo(distanceTravelled + ShoreAhead);
+        SpawnCaveUpTo(distanceTravelled + ShoreAhead);
         RecycleWater();
-        RecycleIceTunnel();
         CleanupPassed();
         while (nextRowAt < distanceTravelled + spawnAhead)
         {
@@ -108,13 +280,21 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             if (pattern == 0) CreateCoinRow(selected, nextRowAt, Random.Range(3, 5));
             else if (pattern == 1) CreateZigzagRow(selected, nextRowAt);
             else if (hazards && pattern <= 4) CreateObstacleRow(selected, nextRowAt);
-            else if (hazards && pattern <= 6 && pirateShipPrefab) { CreateShipRow(selected, nextRowAt); rowLength = shipLength * 2f; }
+            else if (hazards && pattern <= 6 && pirateShipPrefab && Random.value < ShipChance(BiomeAt(nextRowAt))) { CreateShipRow(selected, nextRowAt); rowLength = shipLength * 2f; }
+            else if (hazards && pattern <= 6) CreateObstacleRow(selected, nextRowAt);
             else if (hazards && pattern == 7 && rampPrefab) CreateRampRow(selected, nextRowAt);
             else if (pattern == 8 && fuelPrefab) CreateFuelPickup(selected, nextRowAt);
             else CreateCoinRow(selected, nextRowAt, Random.Range(1, 3));
             nextRowAt += rowLength + Random.Range(16f, 24f);
         }
     }
+
+    // Pirate traffic is heaviest around the harbor and in the storm, rare in the volcanic zone.
+    static float ShipChance(EnvironmentPreset biome) => biome switch
+    {
+        EnvironmentPreset.PirateCove => 1f, EnvironmentPreset.Storm => 1f, EnvironmentPreset.IceCave => .6f,
+        EnvironmentPreset.Volcanic => .3f, _ => .45f,
+    };
 
     bool RestartPressed() =>
         Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Return) ||
@@ -179,41 +359,21 @@ public sealed class JetskiRunnerGame : MonoBehaviour
 
     void CreateLightingAndSky()
     {
-        bool ice = environment == EnvironmentPreset.IceCave;
-        if (ice) { RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat; RenderSettings.ambientLight = new Color(.25f,.52f,.62f); }
-        else
-        {
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(.72f,.82f,.92f);
-            RenderSettings.ambientEquatorColor = new Color(.6f,.74f,.8f);
-            RenderSettings.ambientGroundColor = new Color(.32f,.52f,.58f);
-        }
-        RenderSettings.fog = true; RenderSettings.fogColor = ice ? new Color(.015f,.18f,.24f) : new Color(.78f,.87f,.93f);
-        RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogStartDistance = ice ? 48 : 60; RenderSettings.fogEndDistance = ice ? 145 : 470;
-        var sun = new GameObject("Tropical sunlight").AddComponent<Light>();
-        sun.type=LightType.Directional; sun.color=ice ? new Color(.36f,.88f,1f) : new Color(1f,.95f,.86f); sun.intensity=ice ? .8f : 1.15f;
-        sun.shadows=LightShadows.Soft; sun.shadowStrength=.55f;
-        sun.transform.rotation=Quaternion.Euler(48,-32,0);
+        // Colours, fog and sun direction are driven every frame by ApplyAtmosphere for the current biome.
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+        RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
+        sun = new GameObject("Biome sunlight").AddComponent<Light>();
+        sun.type=LightType.Directional; sun.shadows=LightShadows.Soft; sun.shadowStrength=.55f;
         QualitySettings.shadowDistance=60;
     }
 
     void CreateOcean()
     {
         movingWorld = new GameObject("Endless scenery and pickups").transform;
-        if (environment == EnvironmentPreset.IceCave)
-        {
-            if (iceTunnelPrefab) return; // the tunnel segments carry their own glacial water
-            var iceWater = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            iceWater.name="Ice cave water"; iceWater.transform.position=new Vector3(0,-.42f,67);
-            iceWater.transform.localScale=new Vector3(7.4f,1,500f); iceWater.GetComponent<Renderer>().sharedMaterial=sea;
-            Destroy(iceWater.GetComponent<Collider>());
-        }
-        else
-        {
-            var waterShader = tropicalWaterShader ? tropicalWaterShader : Shader.Find("JetskiRunner/TropicalWater");
-            waterSurfaceMaterial = waterShader ? new Material(waterShader) : sea;
-            TropicalWaterSurface.Create(waterSurfaceMaterial, -.42f);
-        }
+        // One ocean for every biome; ApplyAtmosphere retints it (turquoise, glacial, lava-dark, storm grey).
+        var waterShader = tropicalWaterShader ? tropicalWaterShader : Shader.Find("JetskiRunner/TropicalWater");
+        waterSurfaceMaterial = waterShader ? new Material(waterShader) : sea;
+        TropicalWaterSurface.Create(waterSurfaceMaterial, -.42f);
     }
 
     void CreatePlayer()
@@ -296,21 +456,21 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     static readonly Vector3 CameraOffset=new Vector3(0,3.7f,-7.9f);
     void CreateCamera()
     {
-        bool ice=environment==EnvironmentPreset.IceCave;
         gameCamera=new GameObject("Portrait chase camera").AddComponent<Camera>();
-        gameCamera.tag="MainCamera"; gameCamera.fieldOfView=ice?56:50; gameCamera.nearClipPlane=.1f; gameCamera.farClipPlane=ice?220:620;
-        gameCamera.backgroundColor=ice ? new Color(.015f,.15f,.21f) : new Color(.8f,.88f,.93f); gameCamera.clearFlags=CameraClearFlags.SolidColor;
-        gameCamera.transform.position=CameraOffset; gameCamera.transform.rotation=Quaternion.Euler(ice?13:10,0,0);
+        gameCamera.tag="MainCamera"; gameCamera.fieldOfView=AtmosphereOf(CurrentBiome).fov; gameCamera.nearClipPlane=.1f; gameCamera.farClipPlane=620;
+        gameCamera.clearFlags=CameraClearFlags.SolidColor;
+        gameCamera.transform.position=CameraOffset; gameCamera.transform.rotation=Quaternion.Euler(10,0,0);
         gameCamera.aspect=9f/16f;
         gameCamera.gameObject.AddComponent<AudioListener>();
         var skyShaderToUse=skyShader?skyShader:Shader.Find("JetskiRunner/SkyGradient");
-        if(!ice && skyShaderToUse)
+        if(skyShaderToUse)
         {
             var dome=GameObject.CreatePrimitive(PrimitiveType.Sphere);
             dome.name="Sky dome"; Destroy(dome.GetComponent<Collider>());
             dome.transform.SetParent(gameCamera.transform,false);
             dome.transform.localScale=Vector3.one*1100f;
-            var r=dome.GetComponent<Renderer>(); r.sharedMaterial=new Material(skyShaderToUse); r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows=false;
+            skyMaterial=new Material(skyShaderToUse);
+            var r=dome.GetComponent<Renderer>(); r.sharedMaterial=skyMaterial; r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows=false;
         }
     }
 
@@ -318,7 +478,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     {
         var target=CameraOffset+new Vector3(player.position.x*.78f,JumpOffset*.35f,0);
         gameCamera.transform.position=Vector3.Lerp(gameCamera.transform.position,target,1f-Mathf.Exp(-7f*Time.deltaTime));
-        gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,(environment==EnvironmentPreset.IceCave?56:50)+(boostLeft>0?7:0),Time.deltaTime*3f);
+        gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,atmosphere.fov+(boostLeft>0?7:0),Time.deltaTime*3f);
     }
 
     // White spray fans off both sides of the hull plus a rooster tail, as in the gameplay render.
@@ -356,23 +516,92 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         return ps;
     }
 
+    // Storm rain and volcanic embers follow the camera; ApplyAtmosphere sets their emission per biome.
+    void CreateWeather()
+    {
+        if(!sprayMaterial) return;
+        rain=MakeWeather("Storm rain",new Vector3(0,9,12),new Vector3(22,1,30),new Color(.78f,.84f,.94f,.8f),.07f,.12f,new Vector3(-1.5f,-24,-8),true);
+        embers=MakeWeather("Volcanic embers",new Vector3(0,-.5f,18),new Vector3(30,1,40),new Color(1f,.48f,.12f,.95f),.08f,.16f,new Vector3(0,2.4f,-3),false);
+    }
+    ParticleSystem MakeWeather(string name,Vector3 local,Vector3 box,Color color,float minSize,float maxSize,Vector3 velocity,bool streaks)
+    {
+        var go=new GameObject(name); go.transform.SetParent(gameCamera.transform,false); go.transform.localPosition=local;
+        go.transform.rotation=Quaternion.identity;
+        var ps=go.AddComponent<ParticleSystem>();
+        ps.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main=ps.main;
+        main.startLifetime=streaks?new ParticleSystem.MinMaxCurve(.5f,.8f):new ParticleSystem.MinMaxCurve(2.5f,4f);
+        main.startSpeed=0; main.startSize=new ParticleSystem.MinMaxCurve(minSize,maxSize); main.startColor=color;
+        main.simulationSpace=ParticleSystemSimulationSpace.World; main.maxParticles=streaks?2500:400;
+        var emission=ps.emission; emission.rateOverTime=0;
+        var shape=ps.shape; shape.shapeType=ParticleSystemShapeType.Box; shape.scale=box;
+        var vel=ps.velocityOverLifetime; vel.enabled=true; vel.space=ParticleSystemSimulationSpace.World;
+        vel.x=new ParticleSystem.MinMaxCurve(velocity.x,velocity.x); vel.y=new ParticleSystem.MinMaxCurve(velocity.y*.8f,velocity.y); vel.z=new ParticleSystem.MinMaxCurve(velocity.z,velocity.z); // all TwoConstants: mixed modes are rejected
+        if(!streaks){ var noise=ps.noise; noise.enabled=true; noise.strength=.8f; noise.frequency=.4f; }
+        var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=sprayMaterial;
+        if(streaks){ renderer.renderMode=ParticleSystemRenderMode.Stretch; renderer.velocityScale=.07f; renderer.lengthScale=2f; }
+        ps.Play();
+        return ps;
+    }
+
     void CreateShore()
     {
-        scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,environment==EnvironmentPreset.PirateCove);
+        scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,pirateShipPrefab,BiomeCount);
         scenery.BuildBackdrop();
         SpawnShoreUpTo(ShoreAhead);
+        SpawnCaveUpTo(ShoreAhead);
     }
 
     const float ShoreAhead=190f;
+    // Shore chunks take the biome of the spot they spawn at, so the next biome is visible ahead before the player arrives.
     void SpawnShoreUpTo(float limit)
     {
         if(scenery==null) return;
         for(int s=0;s<2;s++)
             while(nextShoreAt[s]<limit)
             {
-                spawned.Add(scenery.SpawnShore(movingWorld,s==0?-1:1,nextShoreAt[s]));
+                var biome=BiomeAt(nextShoreAt[s]);
+                var chunk=scenery.SpawnShore(movingWorld,s==0?-1:1,nextShoreAt[s],(int)biome,BiomeNames[(int)biome]);
+                if(chunk) spawned.Add(chunk);
                 nextShoreAt[s]+=Random.Range(17f,27f);
             }
+    }
+
+    // Cave passage: ice tunnel segments laid end to end over the whole cave biome, with a glacier at each mouth.
+    void SpawnCaveUpTo(float limit)
+    {
+        if(!iceTunnelPrefab || scenery==null) return;
+        float step=iceTunnelLength;
+        while(nextCaveAt<limit)
+        {
+            float zoneStart=Mathf.Floor(nextCaveAt/biomeLength+1e-4f)*biomeLength, zoneEnd=zoneStart+biomeLength;
+            if(BiomeAt(zoneStart+1f)!=EnvironmentPreset.IceCave){ nextCaveAt=zoneEnd; continue; }
+            if(nextCaveAt+step>zoneEnd+.01f){ nextCaveAt=zoneEnd; continue; }
+            bool first=nextCaveAt<=zoneStart+.01f, last=nextCaveAt+2f*step>zoneEnd+.01f;
+            if(first) spawned.Add(scenery.SpawnGlacierMouth(movingWorld,zoneStart,true));
+            SpawnTunnelSegment(nextCaveAt);
+            if(last) spawned.Add(scenery.SpawnGlacierMouth(movingWorld,nextCaveAt+step,false));
+            nextCaveAt+=step;
+        }
+    }
+
+    void SpawnTunnelSegment(float start)
+    {
+        var segment=Instantiate(iceTunnelPrefab,movingWorld);
+        segment.name="Cave passage | ice tunnel segment";
+        if(!tunnelMeasured)
+        {
+            // the model's geometry sits behind its pivot; measure once so segments start exactly at 'start'
+            segment.transform.localPosition=Vector3.zero;
+            var r=segment.GetComponentsInChildren<Renderer>();
+            float min=float.MaxValue; foreach(var x in r) min=Mathf.Min(min,movingWorld.InverseTransformPoint(x.bounds.min).z);
+            tunnelMinZ=r.Length>0?min:0f; tunnelMeasured=true;
+        }
+        segment.transform.localPosition=new Vector3(0,WaterY,start-tunnelMinZ);
+        // the shared ocean (retinted glacial teal) replaces the segment's own water so the wake foam keeps working
+        foreach(var t in segment.GetComponentsInChildren<Transform>(true))
+            if(t.name.StartsWith("Ice_Tunnel_Water")) foreach(var rr in t.GetComponents<Renderer>()) rr.enabled=false;
+        spawned.Add(segment);
     }
 
     // Pirate ships work like lane-blocking traffic: some lie at anchor, others sail head-on down a lane.
@@ -405,34 +634,6 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         bool facePlayer=sailing||Random.value<.5f;
         ship.transform.localRotation=Quaternion.Euler(0,facePlayer?180:0,0);
         ship.GetComponent<RunnerTrigger>().SailSpeed=sailing?shipSailSpeed:0f;
-    }
-
-    void CreateIceCave()
-    {
-        if (iceTunnelPrefab)
-        {
-            for(int i=0;i<8;i++)
-            {
-                var segment=Instantiate(iceTunnelPrefab,movingWorld).transform;
-                segment.name="Ice tunnel segment "+i;
-                segment.localPosition=new Vector3(0,WaterY,i*iceTunnelLength);
-                iceSegments.Add(segment);
-            }
-            return;
-        }
-        var iceMaterial=Make("Faceted blue ice",new Color(.08f,.53f,.68f),.16f,.68f);
-        for(int i=0;i<13;i++)
-        {
-            float z=7+i*9f;
-            for(int side=-1;side<=1;side+=2)
-            {
-                var wall=CreatePrimitive("Ice tunnel wall",PrimitiveType.Cube,movingWorld,new Vector3(side*6.2f,2.8f,z),new Vector3(2.8f,6.5f,10f),iceMaterial);
-                wall.transform.rotation=Quaternion.Euler(Random.Range(-10,10),Random.Range(-12,12),Random.Range(-8,8));
-                var spike=CreatePrimitive("Hanging ice",PrimitiveType.Cylinder,movingWorld,new Vector3(side*Random.Range(1.8f,4.2f),5.7f,z+Random.Range(-3,3)),new Vector3(.8f,2.4f,.8f),iceMaterial);
-                spike.transform.rotation=Quaternion.Euler(180,0,Random.Range(-18,18));
-            }
-            CreatePrimitive("Ice tunnel arch",PrimitiveType.Cube,movingWorld,new Vector3(0,7f,z),new Vector3(12.5f,1.6f,10f),iceMaterial);
-        }
     }
 
     void CreateCoinRow(int laneIndex,float z,int count)
@@ -527,12 +728,6 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         }
     }
 
-    void RecycleIceTunnel()
-    {
-        foreach(var segment in iceSegments)
-            if(segment.position.z < -iceTunnelLength*1.5f) segment.localPosition+=Vector3.forward*iceTunnelLength*iceSegments.Count;
-    }
-
     GameObject CreatePrimitive(string name,PrimitiveType type,Transform parent,Vector3 position,Vector3 scale,Material material)
     {
         var go=GameObject.CreatePrimitive(type); go.name=name; go.transform.SetParent(parent,false);
@@ -560,11 +755,11 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             case TriggerKind.Ramp: if(jumpTime<0){ jumpTime=0f; landingCued=false; if(rider) rider.Jump(); } break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
-                if(boostLeft>0){ Destroy(trigger.gameObject); if(rider) rider.Hit(); return; } // boost smashes through
+                if(boostLeft>0||TestInvulnerable){ Destroy(trigger.gameObject); if(rider) rider.Hit(); return; } // boost smashes through
                 crashed=true;
                 if(rider) rider.Fall();
                 break;
-            case TriggerKind.Ship: crashed=true; if(rider) rider.Fall(); break; // too big to jump or smash: change lanes
+            case TriggerKind.Ship: if(TestInvulnerable) return; crashed=true; if(rider) rider.Fall(); break; // too big to jump or smash: change lanes
         }
     }
 
@@ -598,6 +793,17 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         Fill(new Rect(coinRect.x-u*1.2f,coinRect.y-u*.6f,u*6.2f,u*6.2f),new Color(.98f,.73f,.16f),true);
         GUI.Label(new Rect(coinRect.x,coinRect.y,coinRect.width-u*1.2f,coinRect.height),coins.ToString("000"),coinStyle);
         if(Time.timeScale==0) GUI.Label(new Rect(0,Screen.height*.42f,Screen.width,Screen.height*.08f),"PAUSED",distanceStyle);
+        // biome banner when a new zone begins (fades out)
+        if(bannerTime>0 && !crashed)
+        {
+            if(bannerStyle==null){ bannerStyle=new GUIStyle(distanceStyle){fontSize=Mathf.RoundToInt(Screen.height*.036f)}; }
+            float alpha=Mathf.Clamp01(bannerTime/.6f)*Mathf.Clamp01((2.8f-bannerTime)/.25f);
+            var bannerRect=new Rect(0,Screen.height*.19f,Screen.width,Screen.height*.06f);
+            Fill(new Rect(Screen.width*.12f,bannerRect.y,Screen.width*.76f,bannerRect.height),new Color(.02f,.06f,.11f,.7f*alpha));
+            var previous=GUI.color; GUI.color=new Color(1,1,1,alpha);
+            GUI.Label(bannerRect,BiomeNames[(int)shownBiome],bannerStyle);
+            GUI.color=previous;
+        }
         if(boostLeft>0) GUI.Label(new Rect(0,Screen.height*.12f,Screen.width,Screen.height*.05f),"BOOST!  "+boostLeft.ToString("0.0")+"s",boostStyle);
         if(crashed)
         {

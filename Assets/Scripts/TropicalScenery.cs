@@ -1,20 +1,23 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Procedural low-poly shoreline for the tropical runs: hazy backdrop mountains and clouds that stay on the
-// horizon, plus recyclable shore chunks (palm islands, docks, rocky cliffs) that scroll past both sides.
+// Procedural low-poly shoreline for every biome of the run: hazy backdrop mountains, clouds and a volcano that
+// stay on the horizon (recoloured per biome), plus shore chunk templates per biome that scroll past both sides.
 public sealed class TropicalScenery
 {
     readonly System.Func<string, Color, float, float, Material> make;
-    readonly GameObject rockPrefab, barrelPrefab;
+    readonly GameObject rockPrefab, barrelPrefab, shipPrefab;
     readonly Material sand, grass, grassDark, trunk, frond, frondDark, coconut, cliff, mountain, cloud, plank, crate, flag;
+    readonly Material stone, flagBlack, basalt, lava, ash, charred, stormRock, stormGrass, stormFrond, lighthouseWhite, lighthouseRed, lamp, glacier;
     readonly Mesh frondMesh, trunkMesh;
-    readonly List<GameObject> templates = new();
+    readonly List<GameObject>[] templates;
     readonly Transform templateRoot;
+    Transform volcano;
+    readonly Color cloudEmission = new(.5f, .52f, .55f);
 
-    public TropicalScenery(System.Func<string, Color, float, float, Material> make, GameObject rockPrefab, GameObject barrelPrefab, bool cove)
+    public TropicalScenery(System.Func<string, Color, float, float, Material> make, GameObject rockPrefab, GameObject barrelPrefab, GameObject shipPrefab, int biomeCount)
     {
-        this.make = make; this.rockPrefab = rockPrefab; this.barrelPrefab = barrelPrefab;
+        this.make = make; this.rockPrefab = rockPrefab; this.barrelPrefab = barrelPrefab; this.shipPrefab = shipPrefab;
         sand = make("Beach sand", new Color(.84f, .74f, .53f), 0, .1f);
         grass = make("Island grass", new Color(.29f, .52f, .21f), 0, .15f);
         grassDark = make("Island grass shade", new Color(.22f, .46f, .2f), 0, .2f);
@@ -25,29 +28,81 @@ public sealed class TropicalScenery
         cliff = make("Cliff rock", new Color(.31f, .34f, .35f), 0, .12f);
         mountain = make("Hazy mountain", new Color(.43f, .56f, .54f), 0, .05f);
         cloud = make("Cloud", new Color(1f, 1f, 1f), 0, 0f);
-        if (cloud.HasProperty("_EmissionColor")) { cloud.EnableKeyword("_EMISSION"); cloud.SetColor("_EmissionColor", new Color(.5f, .52f, .55f)); }
+        Glow(cloud, cloudEmission);
         plank = make("Dock planks", new Color(.52f, .34f, .18f), 0, .2f);
         crate = make("Cargo crate", new Color(.72f, .52f, .3f), 0, .2f);
         flag = make("Red flag", new Color(.86f, .12f, .08f), 0, .25f);
+        stone = make("Harbor stone", new Color(.55f, .52f, .47f), 0, .1f);
+        flagBlack = make("Pirate flag", new Color(.04f, .04f, .05f), 0, .2f);
+        basalt = make("Basalt", new Color(.11f, .09f, .09f), 0, .25f);
+        lava = Glow(make("Lava", new Color(1f, .36f, .05f), 0, .6f), new Color(1.9f, .55f, .08f));
+        ash = make("Volcanic ash", new Color(.25f, .22f, .21f), 0, .05f);
+        charred = make("Charred wood", new Color(.07f, .05f, .04f), 0, .1f);
+        stormRock = make("Storm rock", new Color(.2f, .23f, .25f), 0, .35f);
+        stormGrass = make("Storm grass", new Color(.13f, .27f, .17f), 0, .3f);
+        stormFrond = make("Storm frond", new Color(.1f, .3f, .15f), 0, .35f);
+        lighthouseWhite = make("Lighthouse white", new Color(.85f, .86f, .84f), 0, .3f);
+        lighthouseRed = make("Lighthouse red", new Color(.7f, .1f, .08f), 0, .3f);
+        lamp = Glow(make("Lighthouse lamp", new Color(1f, .93f, .6f), 0, .8f), new Color(2.2f, 1.9f, 1.1f));
+        glacier = make("Glacier ice", new Color(.42f, .74f, .86f), .1f, .7f);
         frondMesh = BuildFrondMesh();
         trunkMesh = BuildTrunkMesh();
 
         templateRoot = new GameObject("Shore chunk templates").transform;
         templateRoot.gameObject.SetActive(false);
-        for (int i = 0; i < 3; i++) templates.Add(BuildPalmIsland(i));
-        templates.Add(BuildDock());
-        if (cove) templates.Add(BuildDock());
-        templates.Add(BuildCliff(0)); templates.Add(BuildCliff(1));
+        templates = new List<GameObject>[biomeCount];
+        for (int i = 0; i < biomeCount; i++) templates[i] = new List<GameObject>();
+        // 0 Tropical island
+        for (int i = 0; i < 3; i++) templates[0].Add(BuildPalmIsland(i, false));
+        templates[0].Add(BuildDock(false)); templates[0].Add(BuildCliff(0)); templates[0].Add(BuildCliff(1));
+        // 1 Pirate harbor
+        templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower());
+        if (shipPrefab) templates[1].Add(BuildShipwreck());
+        templates[1].Add(BuildCliff(0));
+        // 2 Cave passage: walls come from the tunnel segments, no shore chunks.
+        // 3 Volcanic zone
+        templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaCone(0));
+        templates[3].Add(BuildLavaCone(1)); templates[3].Add(BuildAshIsland());
+        // 4 Storm
+        templates[4].Add(BuildStormCliff(0)); templates[4].Add(BuildStormCliff(1)); templates[4].Add(BuildLighthouse());
+        templates[4].Add(BuildPalmIsland(1, true)); templates[4].Add(BuildPalmIsland(2, true));
+    }
+
+    static Material Glow(Material m, Color emission)
+    {
+        if (m.HasProperty("_EmissionColor")) { m.EnableKeyword("_EMISSION"); m.SetColor("_EmissionColor", emission); }
+        return m;
     }
 
     // Shore chunk for one side (-1 left, +1 right); authored for the right side and mirrored for the left.
-    public GameObject SpawnShore(Transform parent, int side, float z)
+    // Returns null for biomes without shore chunks.
+    public GameObject SpawnShore(Transform parent, int side, float z, int biome, string biomeName)
     {
-        var chunk = Object.Instantiate(templates[Random.Range(0, templates.Count)], parent);
+        var set = templates[biome];
+        if (set.Count == 0) return null;
+        var template = set[Random.Range(0, set.Count)];
+        var chunk = Object.Instantiate(template, parent);
+        chunk.name = "Shore | " + biomeName + " | " + template.name;
         chunk.transform.localPosition = new Vector3(side * Random.Range(9.5f, 12f), -.42f, z);
         chunk.transform.localRotation = Quaternion.Euler(0, side < 0 ? 180 : 0, 0);
         chunk.transform.localScale = Vector3.one * Random.Range(.9f, 1.15f);
         return chunk;
+    }
+
+    // Glacier mountain the cave tunnel cuts through; placed at the entrance and exit of every cave passage.
+    public GameObject SpawnGlacierMouth(Transform parent, float z, bool entrance)
+    {
+        var root = new GameObject(entrance ? "Cave passage | glacier entrance" : "Cave passage | glacier exit").transform;
+        root.SetParent(parent, false);
+        root.localPosition = new Vector3(0, -.42f, z);
+        float dir = entrance ? 1 : -1;
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Solid("Glacier flank", FacetedHill(8f, 17f, 9, 4, 300 + side), glacier, root).transform.localPosition = new Vector3(side * 12.5f, -.5f, dir * 6f);
+            Solid("Glacier shoulder", FacetedHill(6f, 11f, 8, 3, 310 + side), glacier, root).transform.localPosition = new Vector3(side * 9.5f, -.5f, dir * 1.5f);
+        }
+        Solid("Glacier crown", FacetedHill(10f, 9f, 10, 3, 320), glacier, root).transform.localPosition = new Vector3(0, 6.2f, dir * 7f);
+        return root.gameObject;
     }
 
     public void BuildBackdrop()
@@ -79,17 +134,47 @@ public sealed class TropicalScenery
                 puff.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
         }
+        // Volcano: sinks below the horizon outside the volcanic zone and rises out of the haze inside it.
+        volcano = new GameObject("Backdrop volcano").transform; volcano.SetParent(root, false);
+        volcano.position = new Vector3(-26, -90, 300);
+        Solid("Volcano cone", FacetedHill(70, 78, 12, 5, 501), basalt, volcano);
+        Solid("Volcano crater glow", FacetedHill(9, 6, 9, 2, 502), lava, volcano).transform.localPosition = new Vector3(0, 74, 0);
+        for (int i = 0; i < 3; i++)
+        {
+            var stream = Solid("Lava stream", FacetedHill(4, 30, 6, 3, 510 + i), lava, volcano).transform;
+            stream.localPosition = new Vector3(-10 + i * 10, 38, -32 + i * 4);
+            stream.localRotation = Quaternion.Euler(-48, i * 12 - 12, 0);
+        }
+        for (int i = 0; i < 6; i++)
+        {
+            var smoke = Primitive("Volcano smoke", PrimitiveType.Sphere, volcano, new Vector3(i * 6 - 6, 84 + i * 9, i * 3), Vector3.one * (16 + i * 5), ash);
+            smoke.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+        volcano.gameObject.SetActive(false);
     }
 
-    GameObject BuildPalmIsland(int variant)
+    public void SetAtmosphere(Color mountainColor, Color cloudColor, float volcanoWeight)
     {
-        var root = Chunk("Palm island");
+        mountain.color = mountainColor;
+        cloud.color = cloudColor;
+        if (cloud.HasProperty("_EmissionColor")) cloud.SetColor("_EmissionColor", cloudEmission * cloudColor.grayscale);
+        if (!volcano) return;
+        volcano.gameObject.SetActive(volcanoWeight > .01f);
+        var p = volcano.position; p.y = Mathf.Lerp(-90f, -2f, Mathf.SmoothStep(0, 1, volcanoWeight)); volcano.position = p;
+    }
+
+    // ---------- tropical island ----------
+
+    GameObject BuildPalmIsland(int variant, bool storm)
+    {
+        var root = Chunk(storm ? "Windswept island" : "Palm island");
         float radius = 4.2f + variant * .9f;
-        Solid("Sand bank", FacetedHill(radius, .9f, 12, 2, 11 + variant), sand, root.transform).transform.localPosition = new Vector3(1.5f, -.3f, 0);
-        Solid("Grass mound", FacetedHill(radius * .62f, 1.6f + variant * .4f, 9, 3, 21 + variant), variant == 1 ? grassDark : grass, root.transform).transform.localPosition = new Vector3(2.4f, .1f, .6f);
+        Solid("Sand bank", FacetedHill(radius, .9f, 12, 2, 11 + variant), storm ? ash : sand, root.transform).transform.localPosition = new Vector3(1.5f, -.3f, 0);
+        Solid("Grass mound", FacetedHill(radius * .62f, 1.6f + variant * .4f, 9, 3, 21 + variant), storm ? stormGrass : variant == 1 ? grassDark : grass, root.transform).transform.localPosition = new Vector3(2.4f, .1f, .6f);
         int palms = 2 + variant;
         for (int i = 0; i < palms; i++)
-            AddPalm(root.transform, new Vector3(Random.Range(-.5f, 3.2f), .5f, Random.Range(-radius * .6f, radius * .6f)), Random.Range(4.2f, 6.2f));
+            AddPalm(root.transform, new Vector3(Random.Range(-.5f, 3.2f), .5f, Random.Range(-radius * .6f, radius * .6f)), Random.Range(4.2f, 6.2f),
+                storm ? stormFrond : frond, storm ? stormGrass : frondDark, storm ? -26f : -9f);
         if (rockPrefab && variant != 1)
         {
             var rock = Object.Instantiate(rockPrefab, root.transform);
@@ -99,9 +184,9 @@ public sealed class TropicalScenery
         return root;
     }
 
-    GameObject BuildDock()
+    GameObject BuildDock(bool pirate)
     {
-        var root = Chunk("Wooden dock");
+        var root = Chunk(pirate ? "Pirate pier" : "Wooden dock");
         Solid("Dock island", FacetedHill(5.5f, 1.1f, 12, 2, 41), sand, root.transform).transform.localPosition = new Vector3(4.5f, -.3f, 0);
         Primitive("Dock deck", PrimitiveType.Cube, root.transform, new Vector3(-.6f, 1.1f, 0), new Vector3(5.2f, .2f, 3.2f), plank);
         for (int x = 0; x < 3; x++) for (int z = -1; z <= 1; z += 2)
@@ -116,9 +201,19 @@ public sealed class TropicalScenery
             barrel.transform.localScale = Vector3.one * .7f;
         }
         Primitive("Flag pole", PrimitiveType.Cylinder, root.transform, new Vector3(1.6f, 3.2f, -1.2f), new Vector3(.08f, 2.1f, .08f), trunk);
-        Primitive("Flag", PrimitiveType.Cube, root.transform, new Vector3(1.6f, 4.8f, -1.75f), new Vector3(.04f, .65f, 1f), flag);
-        AddPalm(root.transform, new Vector3(5f, .6f, 1.5f), 5.6f);
-        AddPalm(root.transform, new Vector3(6.2f, .6f, -1.6f), 4.8f);
+        Primitive("Flag", PrimitiveType.Cube, root.transform, new Vector3(1.6f, 4.8f, -1.75f), new Vector3(.04f, .65f, 1f), pirate ? flagBlack : flag);
+        if (pirate)
+        {
+            // harbor warehouse instead of palms
+            Primitive("Warehouse", PrimitiveType.Cube, root.transform, new Vector3(5f, 1.8f, .2f), new Vector3(3.6f, 2.6f, 4.2f), plank);
+            Primitive("Warehouse roof", PrimitiveType.Cube, root.transform, new Vector3(5f, 3.3f, .2f), new Vector3(4f, .35f, 4.6f), charred).transform.localRotation = Quaternion.Euler(0, 0, 8);
+            Primitive("Lantern", PrimitiveType.Sphere, root.transform, new Vector3(-2.9f, 1.55f, 1.45f), Vector3.one * .25f, lamp);
+        }
+        else
+        {
+            AddPalm(root.transform, new Vector3(5f, .6f, 1.5f), 5.6f, frond, frondDark, -9f);
+            AddPalm(root.transform, new Vector3(6.2f, .6f, -1.6f), 4.8f, frond, frondDark, -9f);
+        }
         return root;
     }
 
@@ -128,7 +223,7 @@ public sealed class TropicalScenery
         Solid("Cliff", FacetedHill(4.5f + variant, 7f + variant * 3f, 8, 4, 61 + variant), cliff, root.transform).transform.localPosition = new Vector3(3.5f, -.5f, 0);
         Solid("Cliff shoulder", FacetedHill(3f, 4f, 7, 3, 71 + variant), cliff, root.transform).transform.localPosition = new Vector3(1f, -.5f, 3.2f);
         Solid("Cliff grass", FacetedHill(2.6f, 1.2f, 8, 2, 81 + variant), grass, root.transform).transform.localPosition = new Vector3(4f, 6f + variant * 3f, 0);
-        AddPalm(root.transform, new Vector3(3.6f, 6.4f + variant * 3f, .4f), 4.2f);
+        AddPalm(root.transform, new Vector3(3.6f, 6.4f + variant * 3f, .4f), 4.2f, frond, frondDark, -9f);
         if (rockPrefab)
         {
             var rock = Object.Instantiate(rockPrefab, root.transform);
@@ -137,20 +232,119 @@ public sealed class TropicalScenery
         return root;
     }
 
-    void AddPalm(Transform parent, Vector3 basePos, float height)
+    // ---------- pirate harbor ----------
+
+    GameObject BuildHarborTower()
+    {
+        var root = Chunk("Harbor watchtower");
+        Solid("Tower rocks", FacetedHill(4.5f, 1.8f, 10, 2, 91), cliff, root.transform).transform.localPosition = new Vector3(3f, -.4f, 0);
+        Primitive("Tower", PrimitiveType.Cylinder, root.transform, new Vector3(3f, 4f, 0), new Vector3(2.6f, 3.4f, 2.6f), stone);
+        Primitive("Tower top", PrimitiveType.Cylinder, root.transform, new Vector3(3f, 7.6f, 0), new Vector3(3.3f, .35f, 3.3f), stone);
+        for (int i = 0; i < 8; i++)
+        {
+            float a = i * Mathf.PI / 4;
+            Primitive("Battlement", PrimitiveType.Cube, root.transform, new Vector3(3f + Mathf.Cos(a) * 1.45f, 8.2f, Mathf.Sin(a) * 1.45f), new Vector3(.5f, .6f, .5f), stone);
+        }
+        Primitive("Flag pole", PrimitiveType.Cylinder, root.transform, new Vector3(3f, 9.6f, 0), new Vector3(.08f, 1.8f, .08f), trunk);
+        Primitive("Pirate flag", PrimitiveType.Cube, root.transform, new Vector3(3f, 10.7f, -.6f), new Vector3(.04f, .8f, 1.2f), flagBlack);
+        Primitive("Cannon", PrimitiveType.Cylinder, root.transform, new Vector3(1.2f, 8.1f, 0), new Vector3(.32f, .8f, .32f), charred).transform.localRotation = Quaternion.Euler(0, 0, 80);
+        return root;
+    }
+
+    GameObject BuildShipwreck()
+    {
+        var root = Chunk("Shipwreck");
+        Solid("Sand bar", FacetedHill(6f, .7f, 12, 2, 101), sand, root.transform).transform.localPosition = new Vector3(3f, -.35f, 0);
+        var wreck = Object.Instantiate(shipPrefab, root.transform);
+        wreck.name = "Wrecked ship";
+        wreck.transform.localPosition = new Vector3(3.5f, -.9f, 0);
+        wreck.transform.localRotation = Quaternion.Euler(4, 35, 24);
+        return root;
+    }
+
+    // ---------- volcanic zone ----------
+
+    GameObject BuildBasaltCliff(int variant)
+    {
+        var root = Chunk("Basalt cliff");
+        Solid("Basalt", FacetedHill(4.8f + variant, 8f + variant * 3f, 7, 4, 121 + variant), basalt, root.transform).transform.localPosition = new Vector3(3.5f, -.5f, 0);
+        Solid("Basalt shoulder", FacetedHill(3f, 4.5f, 6, 3, 131 + variant), basalt, root.transform).transform.localPosition = new Vector3(1f, -.5f, -3f);
+        var vein = Solid("Lava vein", FacetedHill(1.1f, 6.5f + variant * 2.5f, 5, 3, 141 + variant), lava, root.transform).transform;
+        vein.localPosition = new Vector3(1.7f, -.4f, .8f); vein.localRotation = Quaternion.Euler(0, 0, 14);
+        Solid("Lava pool", FacetedHill(1.9f, .15f, 9, 1, 151 + variant), lava, root.transform).transform.localPosition = new Vector3(.4f, -.38f, 1.4f);
+        return root;
+    }
+
+    GameObject BuildLavaCone(int variant)
+    {
+        var root = Chunk("Lava cone");
+        Solid("Ash slope", FacetedHill(5.5f, 1f, 10, 2, 161 + variant), ash, root.transform).transform.localPosition = new Vector3(3f, -.35f, 0);
+        Solid("Cone", FacetedHill(3.6f + variant, 5.5f + variant * 2f, 8, 4, 171 + variant), basalt, root.transform).transform.localPosition = new Vector3(3.5f, 0, 0);
+        Solid("Crater glow", FacetedHill(1.1f, .9f, 7, 2, 181 + variant), lava, root.transform).transform.localPosition = new Vector3(3.5f, 5.1f + variant * 2f, 0);
+        for (int i = 0; i < 3; i++)
+            Solid("Lava rock", FacetedHill(.7f, .9f, 6, 2, 191 + i), i == 1 ? lava : basalt, root.transform).transform.localPosition = new Vector3(-.4f + i * .8f, -.3f, -3f + i * 2.4f);
+        return root;
+    }
+
+    GameObject BuildAshIsland()
+    {
+        var root = Chunk("Ash island");
+        Solid("Ash bank", FacetedHill(5f, 1f, 11, 2, 201), ash, root.transform).transform.localPosition = new Vector3(2f, -.3f, 0);
+        for (int i = 0; i < 3; i++)
+        {
+            var dead = Solid("Charred trunk", trunkMesh, charred, root.transform).transform;
+            dead.localPosition = new Vector3(1.5f + i * 1.2f, .4f, -2f + i * 1.8f);
+            dead.localScale = new Vector3(1, .7f + i * .15f, 1);
+            dead.localRotation = Quaternion.Euler(-12 - i * 6, i * 70, 0);
+        }
+        Solid("Lava crack", FacetedHill(1.4f, .12f, 8, 1, 211), lava, root.transform).transform.localPosition = new Vector3(.6f, -.25f, 1.6f);
+        return root;
+    }
+
+    // ---------- storm ----------
+
+    GameObject BuildStormCliff(int variant)
+    {
+        var root = Chunk("Storm cliff");
+        Solid("Sea stack", FacetedHill(4.6f + variant, 9f + variant * 3f, 7, 4, 221 + variant), stormRock, root.transform).transform.localPosition = new Vector3(3.5f, -.5f, 0);
+        Solid("Stack shoulder", FacetedHill(2.8f, 4.5f, 6, 3, 231 + variant), stormRock, root.transform).transform.localPosition = new Vector3(.9f, -.5f, 3f);
+        Solid("Stack moss", FacetedHill(2.4f, 1f, 8, 2, 241 + variant), stormGrass, root.transform).transform.localPosition = new Vector3(4f, 7.8f + variant * 3f, 0);
+        if (rockPrefab)
+        {
+            var rock = Object.Instantiate(rockPrefab, root.transform);
+            rock.transform.localPosition = new Vector3(-1.2f, 0, -2.6f);
+            rock.transform.localScale = Vector3.one * 1.4f;
+        }
+        return root;
+    }
+
+    GameObject BuildLighthouse()
+    {
+        var root = Chunk("Lighthouse");
+        Solid("Lighthouse rocks", FacetedHill(4.2f, 2.2f, 9, 2, 251), stormRock, root.transform).transform.localPosition = new Vector3(3f, -.5f, 0);
+        for (int i = 0; i < 4; i++)
+            Primitive("Lighthouse band", PrimitiveType.Cylinder, root.transform, new Vector3(3f, 2.6f + i * 1.7f, 0), new Vector3(1.7f - i * .14f, .85f, 1.7f - i * .14f), i % 2 == 0 ? lighthouseWhite : lighthouseRed);
+        Primitive("Lamp room", PrimitiveType.Cylinder, root.transform, new Vector3(3f, 9.3f, 0), new Vector3(1.2f, .55f, 1.2f), lamp);
+        Primitive("Lamp roof", PrimitiveType.Sphere, root.transform, new Vector3(3f, 10f, 0), new Vector3(1.4f, .9f, 1.4f), lighthouseRed);
+        return root;
+    }
+
+    // ---------- shared pieces ----------
+
+    void AddPalm(Transform parent, Vector3 basePos, float height, Material leafA, Material leafB, float meanLean)
     {
         var palm = new GameObject("Palm tree").transform;
         palm.SetParent(parent, false);
         palm.localPosition = basePos;
         palm.localRotation = Quaternion.Euler(0, Random.Range(0, 360f), 0);
-        float lean = Random.Range(-14f, -4f);
+        float lean = meanLean + Random.Range(-5f, 5f);
         var trunkGo = Solid("Palm trunk", trunkMesh, trunk, palm);
         trunkGo.transform.localScale = new Vector3(1, height / 5f, 1);
         trunkGo.transform.localRotation = Quaternion.Euler(lean, 0, 0);
         Vector3 top = trunkGo.transform.localRotation * new Vector3(0, 5f * height / 5f, .9f * height / 5f);
         for (int i = 0; i < 8; i++)
         {
-            var leaf = Solid("Palm frond", frondMesh, i % 2 == 0 ? frond : frondDark, palm);
+            var leaf = Solid("Palm frond", frondMesh, i % 2 == 0 ? leafA : leafB, palm);
             leaf.transform.localPosition = top;
             leaf.transform.localRotation = Quaternion.Euler(Random.Range(-12f, 6f), i * 45 + Random.Range(-10f, 10f), 0);
             leaf.transform.localScale = Vector3.one * Random.Range(.85f, 1.15f);
@@ -166,7 +360,7 @@ public sealed class TropicalScenery
         return go;
     }
 
-    GameObject Solid(string name, Mesh mesh, Material material, Transform parent)
+    static GameObject Solid(string name, Mesh mesh, Material material, Transform parent)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -175,7 +369,7 @@ public sealed class TropicalScenery
         return go;
     }
 
-    GameObject Primitive(string name, PrimitiveType type, Transform parent, Vector3 pos, Vector3 scale, Material material)
+    static GameObject Primitive(string name, PrimitiveType type, Transform parent, Vector3 pos, Vector3 scale, Material material)
     {
         var go = GameObject.CreatePrimitive(type);
         go.name = name;
