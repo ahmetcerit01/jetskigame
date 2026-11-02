@@ -44,7 +44,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     static Shader fallbackShader;
     int lane = 1, coins;
     float distanceTravelled, nextRowAt = 32f, laneBlend, boostLeft, jumpTime = -1f;
-    bool crashed;
+    bool crashed, landingCued;
+    PirateRider rider;
     Vector2 touchStart;
     GUIStyle distanceStyle, coinStyle, hintStyle, boostStyle, shadowStyle;
     float CurrentSpeed => crashed ? 0f : (forwardSpeed + Mathf.Min(distanceTravelled * .004f, 6f)) * (boostLeft > 0 ? boostMultiplier : 1f);
@@ -73,7 +74,12 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         float speed = CurrentSpeed;
         distanceTravelled += speed * Time.deltaTime;
         boostLeft = Mathf.Max(0, boostLeft - Time.deltaTime);
-        if (jumpTime >= 0) { jumpTime += Time.deltaTime / jumpDuration; if (jumpTime >= 1f) jumpTime = -1f; }
+        if (jumpTime >= 0)
+        {
+            jumpTime += Time.deltaTime / jumpDuration;
+            if (jumpTime >= .72f && !landingCued) { landingCued = true; if (rider) rider.Land(); }
+            if (jumpTime >= 1f) jumpTime = -1f;
+        }
         laneBlend = Mathf.MoveTowards(laneBlend, 1f, Time.deltaTime * 5f);
         var desired = new Vector3((lane - 1) * laneWidth, .15f, 0);
         var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Time.deltaTime));
@@ -128,7 +134,12 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             else ChangeLane(touch.position.x > Screen.width * .5f ? 1 : -1);
         }
     }
-    void ChangeLane(int step) => lane = Mathf.Clamp(lane + step, 0, 2);
+    void ChangeLane(int step)
+    {
+        int next = Mathf.Clamp(lane + step, 0, 2);
+        if (next != lane && rider) rider.Lean(step);
+        lane = next;
+    }
 
     void CreateMaterials()
     {
@@ -217,6 +228,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             model.transform.localPosition=new Vector3(0,WaterY-.15f,0);
             model.transform.localRotation=Quaternion.identity;
             model.transform.localScale=Vector3.one;
+            rider=model.GetComponentInChildren<PirateRider>();
             return;
         }
         CreateHullMesh("Shaped low-poly jetski hull",player,charcoal);
@@ -545,13 +557,14 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         {
             case TriggerKind.Coin: Collect(trigger.gameObject); break;
             case TriggerKind.Fuel: boostLeft=boostDuration; Destroy(trigger.gameObject); break;
-            case TriggerKind.Ramp: if(jumpTime<0) jumpTime=0f; break;
+            case TriggerKind.Ramp: if(jumpTime<0){ jumpTime=0f; landingCued=false; if(rider) rider.Jump(); } break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
-                if(boostLeft>0){ Destroy(trigger.gameObject); return; } // boost smashes through
+                if(boostLeft>0){ Destroy(trigger.gameObject); if(rider) rider.Hit(); return; } // boost smashes through
                 crashed=true;
+                if(rider) rider.Fall();
                 break;
-            case TriggerKind.Ship: crashed=true; break; // too big to jump or smash: change lanes
+            case TriggerKind.Ship: crashed=true; if(rider) rider.Fall(); break; // too big to jump or smash: change lanes
         }
     }
 
