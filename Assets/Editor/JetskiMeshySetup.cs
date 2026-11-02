@@ -24,7 +24,7 @@ public static class JetskiMeshySetup
 
     // Proportions measured on the red jetski mesh (0 = nose, 1 = tail; heights as a fraction of the hull height).
     const float JetskiLength = 2.6f, RiderHeight = 1.0f, Waterline = .35f;
-    const float SeatAlong = .50f, SeatHeight = .75f;
+    const float SeatAlong = .56f, SeatHeight = .75f;
     const float GripAlong = .41f, GripHeight = .97f, GripSide = .39f;
 
     static readonly (string clip, bool loop)[] Clips =
@@ -168,10 +168,10 @@ public static class JetskiMeshySetup
         foreach (AvatarMaskBodyPart part in System.Enum.GetValues(typeof(AvatarMaskBodyPart)))
         {
             if (part == AvatarMaskBodyPart.LastBodyPart) continue;
-            bool upper = part == AvatarMaskBodyPart.Body || part == AvatarMaskBodyPart.Head ||
+            bool isUpper = part == AvatarMaskBodyPart.Body || part == AvatarMaskBodyPart.Head ||
                          part == AvatarMaskBodyPart.LeftArm || part == AvatarMaskBodyPart.RightArm ||
                          part == AvatarMaskBodyPart.LeftFingers || part == AvatarMaskBodyPart.RightFingers;
-            mask.SetHumanoidBodyPartActive(part, upper);
+            mask.SetHumanoidBodyPartActive(part, isUpper);
         }
         AssetDatabase.CreateAsset(mask, MaskPath);
 

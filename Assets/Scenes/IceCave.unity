@@ -154,7 +154,7 @@ MonoBehaviour:
   spawnAhead: 72
   tropicalWaterShader: {fileID: 4800000, guid: 954cfaa3fef93df42b532996f61172ad, type: 3}
   goldPrefab: {fileID: 7494983126388791837, guid: e8782001ca918a240b05987e98b4603e, type: 3}
-  riderPrefab: {fileID: 7464340046009469005, guid: b9126775b04d7494fa73b2e47d42cc4d, type: 3}
+  riderPrefab: {fileID: 6393364829012982562, guid: 686d467826214409a92112c3adba35a1, type: 3}
   obstaclePrefabs:
   - {fileID: 5651491379246966403, guid: b26acda0f66ccf342830ef882a9024e0, type: 3}
   - {fileID: 8529008336469523638, guid: 114353d0c54bedb479f864ef43759429, type: 3}
