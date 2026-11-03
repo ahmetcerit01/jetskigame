@@ -14,7 +14,7 @@ public static class JetskiMeshySetup
     const string Root = "Assets/Models/Meshy/";
     const string CharacterPath = Root + "Character/Pirate_Rigged.fbx";
     const string AnimDir = Root + "Character/Animations/";
-    const string JetskiPath = Root + "Jetski/Jetski_Red_7k.fbx";
+    const string JetskiPath = Root + "Jetski/Jetski_Red_Skull.glb"; // glTFast import, keeps its own materials
     const string OutDir = "Assets/Prefabs/Meshy/";
     const string MaterialDir = "Assets/Materials/Meshy/";
     const string ControllerPath = OutDir + "PirateRider.controller";
@@ -23,13 +23,13 @@ public static class JetskiMeshySetup
     static readonly string[] Scenes = { "Assets/Scenes/OceanRun.unity", "Assets/Scenes/PirateCove.unity", "Assets/Scenes/IceCave.unity" };
 
     // Proportions measured on the red jetski mesh (0 = nose, 1 = tail; heights as a fraction of the hull height).
-    const float JetskiLength = 2.6f, RiderHeight = 1.35f, Waterline = .35f;
-    const float SeatAlong = .56f, SeatHeight = .75f;
-    const float GripAlong = .41f, GripHeight = .97f, GripSide = .39f;
+    const float JetskiLength = 2.3f, RiderHeight = 1.45f, Waterline = .35f;
+    const float SeatAlong = .62f, SeatHeight = .80f;
+    const float GripAlong = .415f, GripHeight = .97f, GripSide = .34f;
 
     static readonly (string clip, bool loop)[] Clips =
     {
-        ("Ride_Loop", true), ("Lean_Left", false), ("Lean_Right", false), ("Jump", false), ("Land", false),
+        ("Ride_Loop", true), ("Jump", false), ("Land", false),
         ("Hit_Reaction", false), ("Fall", false), ("Victory", false), ("Menu_Idle", true),
     };
 
@@ -42,7 +42,7 @@ public static class JetskiMeshySetup
 
         var avatar = ImportCharacter();
         var clips = ImportClips(avatar);
-        ImportStatic(JetskiPath);
+        if (JetskiPath.EndsWith(".fbx")) ImportStatic(JetskiPath);
         var controller = BuildController(clips);
         var prefab = BuildPrefab(controller);
         AssetDatabase.SaveAssets();
@@ -176,7 +176,7 @@ public static class JetskiMeshySetup
         AssetDatabase.CreateAsset(mask, MaskPath);
 
         var controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
-        foreach (var p in new[] { "LeanLeft", "LeanRight", "Jump", "Land", "Hit", "Fall", "Victory" })
+        foreach (var p in new[] { "Jump", "Land", "Hit", "Fall", "Victory" })
             controller.AddParameter(p, AnimatorControllerParameterType.Trigger);
 
         var layers = controller.layers;
@@ -192,8 +192,6 @@ public static class JetskiMeshySetup
             return s;
         }
         var ride = State("Ride", "Ride_Loop", "Seated", new Vector3(300, 0));
-        var leanL = State("LeanLeft", "Lean_Left", "Seated", new Vector3(560, -120));
-        var leanR = State("LeanRight", "Lean_Right", "Seated", new Vector3(560, 120));
         var jump = State("Jump", "Jump", "Seated", new Vector3(300, 200));
         var land = State("Land", "Land", "Seated", new Vector3(560, 260));
         var fall = State("Fall", "Fall", "Thrown", new Vector3(40, 260));
@@ -212,10 +210,9 @@ public static class JetskiMeshySetup
             var t = from.AddTransition(ride);
             t.hasExitTime = true; t.exitTime = exit; t.duration = .2f;
         }
-        FromAny(leanL, "LeanLeft", .1f); FromAny(leanR, "LeanRight", .1f);
         FromAny(jump, "Jump", .08f); FromAny(land, "Land", .1f);
         FromAny(fall, "Fall", .08f); FromAny(victory, "Victory", .25f);
-        Back(leanL, .85f); Back(leanR, .85f); Back(land, .9f);
+        Back(land, .9f);
 
         // Hit plays on the upper body only, so the pirate stays seated while he flinches.
         controller.AddLayer("UpperBodyHit");
@@ -264,8 +261,7 @@ public static class JetskiMeshySetup
         float s = JetskiLength / b.size.z;
         jetPivot.localScale = Vector3.one * s;
         float L = JetskiLength, H = b.size.y * s, W = b.size.x * s, minY = -Waterline * H;
-        var jetMat = MakeMaterial("Meshy_Jetski_Red", JetskiPath);
-        Restyle(jet, jetMat);
+        if (JetskiPath.EndsWith(".fbx")) Restyle(jet, MakeMaterial("Meshy_Jetski_Red", JetskiPath));
 
         Transform Anchor(string name, Vector3 local)
         {

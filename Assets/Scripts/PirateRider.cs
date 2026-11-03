@@ -11,8 +11,6 @@ public sealed class PirateRider : MonoBehaviour
     [SerializeField] float seatLift = .04f;
     [SerializeField] float ikBlendSpeed = 8f;
 
-    static readonly int LeanLeftId = Animator.StringToHash("LeanLeft");
-    static readonly int LeanRightId = Animator.StringToHash("LeanRight");
     static readonly int JumpId = Animator.StringToHash("Jump");
     static readonly int LandId = Animator.StringToHash("Land");
     static readonly int HitId = Animator.StringToHash("Hit");
@@ -39,7 +37,8 @@ public sealed class PirateRider : MonoBehaviour
         hips = animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.Hips) : null;
     }
 
-    public void Lean(int direction) { if (!thrown) animator.SetTrigger(direction < 0 ? LeanLeftId : LeanRightId); }
+    // Lane changes only tilt the jetski; the rider keeps riding (no lean clip by design).
+    public void Lean(int direction) { }
     public void Jump() { if (!thrown) { animator.ResetTrigger(LandId); animator.SetTrigger(JumpId); } }
     public void Land() { if (!thrown) animator.SetTrigger(LandId); }
     public void Hit() { if (!thrown) animator.SetTrigger(HitId); }
