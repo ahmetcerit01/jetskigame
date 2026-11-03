@@ -35,6 +35,12 @@ public sealed class PirateRider : MonoBehaviour
         animator.applyRootMotion = false;
         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
         hips = animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.Hips) : null;
+        if (animator.isHuman)
+        {
+            spine = animator.GetBoneTransform(HumanBodyBones.Spine);
+            chest = animator.GetBoneTransform(HumanBodyBones.Chest);
+            neck = animator.GetBoneTransform(HumanBodyBones.Neck);
+        }
     }
 
     // Lane changes only tilt the jetski; the rider keeps riding (no lean clip by design).
@@ -44,6 +50,12 @@ public sealed class PirateRider : MonoBehaviour
     public void Hit() { if (!thrown) animator.SetTrigger(HitId); }
     public void Fall() { if (thrown) return; thrown = true; animator.SetTrigger(FallId); }
     public void Victory() { animator.SetTrigger(VictoryId); }
+    // Back on the seat after a paid continue.
+    public void Revive() { thrown = false; animator.Rebind(); animator.Update(0f); handWeight = 1f; }
+    // 0 = riding upright, 1 = folded low over the handlebar (ducking under hanging obstacles).
+    public float Tuck { get; set; }
+    float tuckShown;
+    Transform spine, chest, neck;
 
     bool Seated => !thrown && animator.GetCurrentAnimatorStateInfo(0).tagHash == SeatedTag;
 
@@ -58,6 +70,15 @@ public sealed class PirateRider : MonoBehaviour
                 Vector3 delta = seat.position + seat.up * seatLift - hips.position;
                 transform.position += delta;
             }
+        }
+        // Tuck: bend the spine forward on top of the animated pose (bend axis = the rider's right).
+        tuckShown = Mathf.MoveTowards(tuckShown, thrown ? 0f : Tuck, Time.deltaTime * 7f);
+        if (tuckShown > .001f)
+        {
+            var axis = transform.right;
+            if (spine) spine.Rotate(axis, 28f * tuckShown, Space.World);
+            if (chest) chest.Rotate(axis, 22f * tuckShown, Space.World);
+            if (neck) neck.Rotate(axis, -18f * tuckShown, Space.World);   // keep looking ahead
         }
     }
 

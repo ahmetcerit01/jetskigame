@@ -12,7 +12,8 @@ Shader "JetskiRunner/TropicalWater"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        // After the opaques so it can read their depth for contact foam; it still writes solid colour.
+        Tags { "RenderType"="Transparent" "Queue"="Transparent-50" "IgnoreProjector"="True" }
         Pass
         {
             CGPROGRAM
@@ -22,10 +23,12 @@ Shader "JetskiRunner/TropicalWater"
             #include "UnityCG.cginc"
             fixed4 _Shallow, _Deep, _Far, _Trough, _Sky;
             float4 _SunDir;
-            float _Speed, _PlayerX, _Scroll;
+            float4 _SkyTop, _SunColor, _PlayerPos;
+            float _Speed, _PlayerX, _Scroll, _Foam;
+            UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
             struct appdata { float4 vertex : POSITION; };
-            struct v2f { float4 position : SV_POSITION; float3 world : TEXCOORD0; UNITY_FOG_COORDS(1) };
+            struct v2f { float4 position : SV_POSITION; float3 world : TEXCOORD0; UNITY_FOG_COORDS(1) float4 screen : TEXCOORD2; };
 
             // Scrolled water coordinates: the mesh stays put while the world runs towards the camera.
             float2 Flow(float3 w) { return float2(w.x, w.z + _Scroll); }
@@ -63,6 +66,8 @@ Shader "JetskiRunner/TropicalWater"
                 o.world = world;
                 o.position = UnityWorldToClipPos(world);
                 UNITY_TRANSFER_FOG(o, o.position);
+                o.screen = ComputeScreenPos(o.position);
+                COMPUTE_EYEDEPTH(o.screen.z);
                 return o;
             }
 
@@ -73,7 +78,9 @@ Shader "JetskiRunner/TropicalWater"
                 float3 waves = Waves(q, t);
                 // fine ripples from scrolling noise
                 float2 rq = q * 3.1 + float2(t * .3, -t * .6);
-                float2 ripple = float2(Noise(rq) - Noise(rq + float2(.37, 0)), Noise(rq) - Noise(rq + float2(0, .37))) * .35;
+                float n0 = Noise(rq), n1 = Noise(rq * 2.3 + 7.1 - t * .5);
+                float2 ripple = float2(n0 - Noise(rq + float2(.37, 0)), n0 - Noise(rq + float2(0, .37))) * .35
+                              + float2(n1 - Noise(rq * 2.3 + 7.1 - t * .5 + float2(.31, 0)), n1 - Noise(rq * 2.3 + 7.1 - t * .5 + float2(0, .31))) * .16;
                 float3 n = normalize(float3(-(waves.y + ripple.x), 1, -(waves.z + ripple.y)));
 
                 float3 view = normalize(_WorldSpaceCameraPos - i.world);
@@ -87,14 +94,40 @@ Shader "JetskiRunner/TropicalWater"
                 // crests catch light, troughs go darker
                 col *= 0.86 + saturate(waves.x * 6 + .5) * .26;
 
-                float fresnel = pow(1 - saturate(dot(n, view)), 5);
-                col = lerp(col, _Sky.rgb, saturate(fresnel * .85 + .04));
-
+                // light passing through crests: they glow a brighter, greener turquoise
                 float3 sun = normalize(_SunDir.xyz);
+                float crest = saturate(waves.x * 7 + ripple.x * 1.5 + .25);
+                col += _Shallow.rgb * crest * crest * .1 * pow(saturate(dot(view, -sun) * .5 + .5), 2);
+
+                // Schlick fresnel reflecting a real sky gradient rather than one flat colour
                 float3 refl = reflect(-view, n);
-                float glint = pow(saturate(dot(refl, sun)), 900) * .9 + pow(saturate(dot(refl, sun)), 60) * .05;
+                float fresnel = .02 + .98 * pow(1 - saturate(dot(n, view)), 5);
+                float3 skyRefl = lerp(_Sky.rgb, _SkyTop.rgb, saturate(refl.y * 1.6));
+                col = lerp(col, skyRefl, saturate(fresnel * .9));
+
                 float diffuse = saturate(dot(n, normalize(float3(-.3, 1, -.4))));
-                col = col * (.82 + diffuse * .2) + glint;
+                col *= .84 + diffuse * .2;
+                // HDR sun sparkle (values above 1 feed the bloom), wide sheen under it
+                float rs = saturate(dot(refl, sun));
+                col += _SunColor.rgb * (pow(rs, 900) * 3.5 + pow(rs, 90) * .1);
+
+                // wind-whipped whitecaps on the crests, more of them in rough biomes
+                float caps = Noise(q * float2(1.5, .9) + t * float2(.1, .28)) * .5 + Noise(q * 3.7 - t * .4) * .3 + Noise(q * 9.1 + t * .3) * .2;
+                float capMask = smoothstep(.66 - _Foam * .08, .8 - _Foam * .08, caps) * smoothstep(.1, .7, crest + _Foam * .3);
+                col = lerp(col, fixed3(.92, .97, 1), capMask * saturate(_Foam) * .75);
+
+                // soft shadow pooling under the jetski; spreads and fades as it leaves the water
+                float h = saturate(_PlayerPos.y / 2.5);
+                float2 sd = (i.world.xz - _PlayerPos.xz - float2(.15, -.1)) / (float2(.95, 1.75) * (1 + h * .7));
+                col *= 1 - .42 * (1 - h * .7) * (1 - smoothstep(.3, 1, length(sd)));
+
+                // contact foam and a dark waterline wherever something pierces the surface
+                float sceneZ = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(i.screen)));
+                float gap = max(sceneZ - i.screen.z, 0) * saturate(dot(n, view) + .15);
+                col *= lerp(.82, 1, saturate(gap / .55));
+                float lace = Noise(q * 5 + t * float2(.3, -.5));
+                float contact = (1 - smoothstep(.02, .32 + lace * .3, gap)) * step(gap, 2);
+                col = lerp(col, fixed3(.95, .99, 1), contact * .88);
 
                 // jetski wake: two broken foam lines spreading behind the player and a churned centre
                 float back = -i.world.z;

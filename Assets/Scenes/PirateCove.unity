@@ -171,6 +171,8 @@ MonoBehaviour:
   dockBarrelPrefab: {fileID: 3381627655719016453, guid: 0af3272f183cb8f4bbb809f42b94dd73, type: 3}
   skyShader: {fileID: 4800000, guid: 1d5c9ee08de69d74b992fd2ab34ea3c2, type: 3}
   sprayMaterial: {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
+  postFxShader: {fileID: 4800000, guid: 8555615ac658c46c2acedb5a27b91575, type: 3}
+  emissiveTemplate: {fileID: 2100000, guid: b38c16c1bfe7846868833cfbdf2e910f, type: 2}
   splashMaterial: {fileID: 2100000, guid: 5c0067b44718e479dacd1f3921648908, type: 2}
   foamRingMaterial: {fileID: 2100000, guid: 66d8aab2e7e3a4d93b4641eb71e17bf9, type: 2}
   iceTunnelPrefab: {fileID: 5637465107768741935, guid: 705012caec18f504d888cae9878aec1e, type: 3}

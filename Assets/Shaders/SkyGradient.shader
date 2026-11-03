@@ -17,6 +17,7 @@ Shader "JetskiRunner/SkyGradient"
             #pragma fragment frag
             #include "UnityCG.cginc"
             fixed4 _Top, _Horizon, _Below;
+            float4 _SunDir, _SunColor;
             struct v2f { float4 position : SV_POSITION; float3 dir : TEXCOORD0; };
             v2f vert(float4 vertex : POSITION)
             {
@@ -27,8 +28,12 @@ Shader "JetskiRunner/SkyGradient"
             }
             fixed4 frag(v2f i) : SV_Target
             {
-                float y = normalize(i.dir).y;
+                float3 dir = normalize(i.dir);
+                float y = dir.y;
                 fixed3 col = y > 0 ? lerp(_Horizon.rgb, _Top.rgb, pow(saturate(y * 2.2), .65)) : lerp(_Horizon.rgb, _Below.rgb, saturate(-y * 6));
+                // sun: HDR disc for the bloom, tight corona and a wide warm glow over the horizon
+                float d = saturate(dot(dir, normalize(_SunDir.xyz)));
+                col += _SunColor.rgb * (smoothstep(.9994, .9997, d) * 6 + pow(d, 350) * .6 + pow(d, 70) * .12) * step(-.02, y);
                 return fixed4(col, 1);
             }
             ENDCG

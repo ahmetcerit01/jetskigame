@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public sealed class JetskiRunnerGame : MonoBehaviour
+public sealed partial class JetskiRunnerGame : MonoBehaviour
 {
     // Biomes in run order. The run cycles through them by distance and loops back to the first.
     public enum EnvironmentPreset { TropicalRun, PirateCove, IceCave, Volcanic, Storm }
@@ -30,6 +30,9 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     [SerializeField] GameObject dockBarrelPrefab;
     [SerializeField] Shader skyShader;
     [SerializeField] Material sprayMaterial;
+    [SerializeField] Shader postFxShader;
+    [Tooltip("Standard material with emission on: referencing it keeps that shader variant in player builds.")]
+    [SerializeField] Material emissiveTemplate;
     [Header("Water splash FX (Jetski Runner > Apply Water Splash FX)")]
     [SerializeField] Material splashMaterial;
     [SerializeField] Material foamRingMaterial;
@@ -67,7 +70,6 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     bool tunnelMeasured;
     EnvironmentPreset shownBiome;
     Atmosphere atmosphere;
-    GUIStyle bannerStyle;
     Material sea, seaLight, foam, gold, orange, cyan, charcoal, skin, wood, rock, palmLeaf;
     Material waterSurfaceMaterial;
     static Shader fallbackShader;
@@ -77,12 +79,11 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     bool crashed, landingCued, touchSwiped;
     PirateRider rider;
     Vector2 touchStart;
-    GUIStyle distanceStyle, coinStyle, hintStyle, boostStyle, shadowStyle;
     // Subway-Surfers-style ramp: quick early gains that ease off towards maxSpeed.
     float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance)));
     // 0 at the start speed, 1 at max speed; scales spacing, steering and jump timing.
     float SpeedProgress => Mathf.InverseLerp(forwardSpeed, Mathf.Max(maxSpeed, forwardSpeed + .01f), RunSpeed);
-    float CurrentSpeed => crashed ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f);
+    float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f) * (stumbleSlow > 0 ? .78f : 1f);
     float JumpOffset => jumpTime < 0 ? 0f : 4f * activeJumpHeight * jumpTime * (1f - jumpTime);
     public float Speed => CurrentSpeed;
     public bool Airborne => jumpTime >= 0;
@@ -95,6 +96,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     public bool Crashed => crashed;
     public Atmosphere CurrentAtmosphere => atmosphere;
     public string BannerText => bannerTime > 0 ? BiomeNames[(int)shownBiome] : null;
+    public float BannerTime => bannerTime;
     // Play-mode tests drive a full cycle without crashing; obstacles are smashed as if boosting.
     public static bool TestInvulnerable;
 
@@ -113,6 +115,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         public Color waterShallow, waterDeep, waterFar, waterTrough, waterSky; public float waveSpeed;
         public Color mountain, cloud;
         public float rain, embers, lightning, volcano, fov;
+        public Color gradeTint; public float reflectionLift, bloom, saturation, contrast, vignette, waterFoam, sunGlow;
 
         public static Atmosphere Lerp(Atmosphere a, Atmosphere b, float t)
         {
@@ -128,6 +131,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 waterTrough = C(a.waterTrough, b.waterTrough), waterSky = C(a.waterSky, b.waterSky), waveSpeed = F(a.waveSpeed, b.waveSpeed),
                 mountain = C(a.mountain, b.mountain), cloud = C(a.cloud, b.cloud),
                 rain = F(a.rain, b.rain), embers = F(a.embers, b.embers), lightning = F(a.lightning, b.lightning), volcano = F(a.volcano, b.volcano), fov = F(a.fov, b.fov),
+                gradeTint = C(a.gradeTint, b.gradeTint), reflectionLift = F(a.reflectionLift, b.reflectionLift), bloom = F(a.bloom, b.bloom), saturation = F(a.saturation, b.saturation), contrast = F(a.contrast, b.contrast),
+                vignette = F(a.vignette, b.vignette), waterFoam = F(a.waterFoam, b.waterFoam), sunGlow = F(a.sunGlow, b.sunGlow),
             };
         }
     }
@@ -146,6 +151,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 skyTop = Rgb(.32f, .48f, .76f), skyHorizon = Rgb(.99f, .8f, .58f), skyBelow = Rgb(.72f, .7f, .66f),
                 waterShallow = Rgb(.13f, .6f, .7f), waterDeep = Rgb(.05f, .43f, .64f), waterFar = Rgb(.6f, .6f, .62f), waterTrough = Rgb(.03f, .33f, .53f), waterSky = Rgb(.97f, .82f, .64f), waveSpeed = 1f,
                 mountain = Rgb(.52f, .5f, .44f), cloud = Rgb(1f, .88f, .76f), fov = 50,
+                gradeTint = Rgb(1.04f, .99f, .92f), bloom = .75f, saturation = 1.04f, contrast = 1.08f, vignette = .28f, waterFoam = .3f, sunGlow = .85f,
             };
             case EnvironmentPreset.IceCave: return new Atmosphere      // dim glacial tunnel
             {
@@ -155,6 +161,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 skyTop = Rgb(.02f, .14f, .2f), skyHorizon = Rgb(.03f, .2f, .26f), skyBelow = Rgb(.02f, .14f, .2f),
                 waterShallow = Rgb(.05f, .45f, .5f), waterDeep = Rgb(.01f, .25f, .33f), waterFar = Rgb(.01f, .17f, .23f), waterTrough = Rgb(.005f, .15f, .21f), waterSky = Rgb(.2f, .62f, .72f), waveSpeed = .8f,
                 mountain = Rgb(.3f, .5f, .6f), cloud = Rgb(.35f, .45f, .5f), fov = 56,
+                gradeTint = Rgb(.97f, 1.01f, 1.04f), reflectionLift = 1.7f, bloom = .9f, saturation = 1.08f, contrast = 1.1f, vignette = .42f, waterFoam = .2f, sunGlow = 0f,
             };
             case EnvironmentPreset.Volcanic: return new Atmosphere     // ash haze lit by lava
             {
@@ -164,6 +171,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 skyTop = Rgb(.17f, .06f, .06f), skyHorizon = Rgb(.86f, .36f, .15f), skyBelow = Rgb(.3f, .1f, .06f),
                 waterShallow = Rgb(.2f, .11f, .09f), waterDeep = Rgb(.11f, .055f, .05f), waterFar = Rgb(.38f, .15f, .08f), waterTrough = Rgb(.06f, .03f, .03f), waterSky = Rgb(.95f, .46f, .2f), waveSpeed = .9f,
                 mountain = Rgb(.15f, .11f, .11f), cloud = Rgb(.36f, .26f, .23f), embers = 1, volcano = 1, fov = 52,
+                gradeTint = Rgb(1.02f, .98f, .94f), bloom = .9f, saturation = .98f, contrast = 1.08f, vignette = .42f, waterFoam = .25f, sunGlow = .6f,
             };
             case EnvironmentPreset.Storm: return new Atmosphere        // overcast squall, rain and lightning
             {
@@ -173,6 +181,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 skyTop = Rgb(.17f, .2f, .24f), skyHorizon = Rgb(.43f, .48f, .51f), skyBelow = Rgb(.3f, .35f, .38f),
                 waterShallow = Rgb(.13f, .31f, .34f), waterDeep = Rgb(.07f, .2f, .24f), waterFar = Rgb(.31f, .37f, .41f), waterTrough = Rgb(.04f, .13f, .16f), waterSky = Rgb(.46f, .51f, .56f), waveSpeed = 1.7f,
                 mountain = Rgb(.22f, .26f, .28f), cloud = Rgb(.3f, .33f, .36f), rain = 1, lightning = 1, fov = 50,
+                gradeTint = Rgb(.95f, .98f, 1.04f), bloom = .45f, saturation = .85f, contrast = 1.12f, vignette = .45f, waterFoam = .75f, sunGlow = .05f,
             };
             default: return new Atmosphere                              // bright tropical midday
             {
@@ -182,6 +191,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 skyTop = Rgb(.36f, .62f, .84f), skyHorizon = Rgb(.8f, .88f, .93f), skyBelow = Rgb(.55f, .75f, .88f),
                 waterShallow = Rgb(.13f, .72f, .83f), waterDeep = Rgb(.06f, .56f, .78f), waterFar = Rgb(.33f, .66f, .84f), waterTrough = Rgb(.03f, .42f, .68f), waterSky = Rgb(.8f, .89f, .95f), waveSpeed = 1f,
                 mountain = Rgb(.43f, .56f, .54f), cloud = Rgb(1f, 1f, 1f), fov = 50,
+                gradeTint = Rgb(1f, 1f, 1f), bloom = .55f, saturation = 1.04f, contrast = 1.08f, vignette = .22f, waterFoam = .35f, sunGlow = 1f,
             };
         }
     }
@@ -200,6 +210,50 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         return result;
     }
 
+    // Where the visible sun sits: ahead of the player, so it is in shot and its glitter path lies on the water.
+    // The shadow-casting light stays behind the camera, keeping the side of everything facing the player lit.
+    static readonly Vector4 GlintSunDir = new(-.13f, .19f, 1f, 0f);
+    RunnerPostFX postFx;
+    Cubemap reflection;
+    float reflectionTimer;
+
+    // Sky-gradient cubemap for the Standard materials, so coins and glossy hulls reflect the current biome.
+    void UpdateReflection(Atmosphere a)
+    {
+        reflectionTimer -= Time.unscaledDeltaTime;
+        if (reflectionTimer > 0f) return;
+        reflectionTimer = .4f;
+        const int size = 16;
+        if (!reflection)
+        {
+            reflection = new Cubemap(size, TextureFormat.RGBAHalf, true) { name = "Biome sky reflection" };
+            RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
+            RenderSettings.customReflectionTexture = reflection;
+            RenderSettings.reflectionIntensity = .4f;
+        }
+        var sun = ((Vector3)GlintSunDir).normalized;
+        var px = new Color[size * size];
+        for (int face = 0; face < 6; face++)
+        {
+            for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
+            {
+                float u = (x + .5f) / size * 2f - 1f, v = (y + .5f) / size * 2f - 1f;
+                var d = (face switch
+                {
+                    0 => new Vector3(1, -v, -u), 1 => new Vector3(-1, -v, u), 2 => new Vector3(u, 1, v),
+                    3 => new Vector3(u, -1, -v), 4 => new Vector3(u, -v, 1), _ => new Vector3(-u, -v, -1),
+                }).normalized;
+                var c = d.y > 0 ? Color.Lerp(a.skyHorizon, a.skyTop, Mathf.Pow(Mathf.Clamp01(d.y * 2.2f), .65f)) : Color.Lerp(a.skyHorizon, a.waterDeep, Mathf.Clamp01(-d.y * 5f));
+                c += a.sunColor * a.sunGlow * (Mathf.Pow(Mathf.Max(0f, Vector3.Dot(d, sun)), 40f) * 1.2f);
+                c += a.ambientSky * a.reflectionLift;     // a cave has no sky: its ice glows from the ambient instead
+                c.a = 1f;
+                px[y * size + x] = c;
+            }
+            reflection.SetPixels(px, (CubemapFace)face);
+        }
+        reflection.Apply(true);
+    }
+
     void ApplyAtmosphere()
     {
         atmosphere = AtmosphereAt(distanceTravelled);
@@ -207,7 +261,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         if (a.lightning > .5f && !crashed)
         {
             lightningTimer -= Time.deltaTime;
-            if (lightningTimer <= 0f) { lightningFlash = 1f; lightningTimer = Random.Range(2.2f, 5.5f); }
+            if (lightningTimer <= 0f) { lightningFlash = 1f; lightningTimer = Random.Range(2.2f, 5.5f); if (Random.value < .6f) audioFx?.Thunder(); }
         }
         lightningFlash = Mathf.MoveTowards(lightningFlash, 0f, Time.deltaTime * 4.5f);
         float flash = lightningFlash * a.lightning * (Mathf.Sin(lightningFlash * 40f) > -.3f ? 1f : .3f);
@@ -233,6 +287,21 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             waterSurfaceMaterial.SetColor("_Far", a.waterFar); waterSurfaceMaterial.SetColor("_Trough", a.waterTrough);
             waterSurfaceMaterial.SetColor("_Sky", Color.Lerp(a.waterSky, Color.white, flash * .5f)); waterSurfaceMaterial.SetFloat("_Speed", a.waveSpeed);
         }
+        var sunGlowColor = (Color)(a.sunColor * a.sunGlow);
+        if (skyMaterial) { skyMaterial.SetVector("_SunDir", GlintSunDir); skyMaterial.SetColor("_SunColor", sunGlowColor); }
+        if (waterSurfaceMaterial && waterSurfaceMaterial.HasProperty("_Shallow"))
+        {
+            waterSurfaceMaterial.SetVector("_SunDir", GlintSunDir);
+            waterSurfaceMaterial.SetColor("_SunColor", sunGlowColor);
+            waterSurfaceMaterial.SetColor("_SkyTop", a.skyTop);
+            waterSurfaceMaterial.SetFloat("_Foam", a.waterFoam);
+        }
+        if (postFx)
+        {
+            postFx.Bloom = a.bloom; postFx.Saturation = a.saturation; postFx.Contrast = a.contrast; postFx.Vignette = a.vignette; postFx.Tint = a.gradeTint;
+            postFx.Radial = Mathf.Lerp(0f, .012f, SpeedProgress) + (boostLeft > 0 ? .03f : 0f);
+        }
+        UpdateReflection(a);
         scenery?.SetAtmosphere(a.mountain, a.cloud, a.volcano);
         if (rain) { var e = rain.emission; e.rateOverTime = 1400f * a.rain; }
         if (embers) { var e = embers.emission; e.rateOverTime = 70f * a.embers; }
@@ -257,12 +326,33 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         ApplyAtmosphere();
         CreateCoinRow(1, 25f, 4);
         CreateCoinRow(0, 54f, 3);
+        SetupExtras();
+    }
+
+    // Main menu: the jetski idles on the water behind the menu while the scenery keeps its atmosphere.
+    void UpdateMenu()
+    {
+        var p = player.position; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; player.position = p;
+        player.rotation = Quaternion.Euler(Mathf.Sin(Time.time * 1.7f) * 1.5f, 0, Mathf.Sin(Time.time * 1.3f) * 2.5f);
+        foreach (var spray in sprays) { var e = spray.emission; e.enabled = false; }
+        if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX", player.position.x); waterSurfaceMaterial.SetVector("_PlayerPos", new Vector4(player.position.x, 0, player.position.z, 0)); }
+        ApplyAtmosphere();
+        FollowCamera();
+        audioFx?.SetMotion(0f, 0f, false, false, false);
     }
 
     void Update()
     {
-        // short grace period so a jump tap spammed into a crash does not restart instantly
-        if (crashed) { if (Time.time - crashTime > .7f && RestartPressed()) UnityEngine.SceneManagement.SceneManager.LoadScene(gameObject.scene.buildIndex); return; }
+        if (state == RunState.Menu) { UpdateMenu(); return; }
+        if (crashed)
+        {
+            UpdateChaser(0f);
+            audioFx?.SetMotion(0f, 0f, false, false, false);
+            // keyboard restart once the game-over panel is up (and the continue offer has run out)
+            if (OverTime > (CanRevive ? ReviveWindow : 1.2f) && RestartPressed()) Restart(false);
+            return;
+        }
+        audioFx?.SetMotion(SpeedProgress, 1f, jumpTime >= 0, boostLeft > 0, Paused);
         if (Time.timeScale == 0) return;
         ReadInput();
         float speed = CurrentSpeed;
@@ -274,16 +364,16 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             if (jumpTime >= .72f && !landingCued) { landingCued = true; if (rider) rider.Land(); }
             // vertical speed at touch-down (d/dt of the jump arc) sizes the landing splash
             peakFallSpeed = 4f * activeJumpHeight * Mathf.Abs(1f - 2f * Mathf.Min(jumpTime, 1f)) / activeJumpDuration;
-            if (jumpTime >= 1f) { jumpTime = -1f; LandingSplash(peakFallSpeed); }
+            if (jumpTime >= 1f) { jumpTime = -1f; LandingSplash(peakFallSpeed); OnLanded(); }
         }
         laneBlend = Mathf.MoveTowards(laneBlend, 1f, Time.deltaTime * 5f);
         var desired = new Vector3((lane - 1) * laneWidth, .15f, 0);
         // steering gets snappier as the run speeds up so lane changes keep pace with the traffic
         var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
-        position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f);
+        position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f) - (Ducking ? .16f : 0f);
         player.position = position;
-        if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX",player.position.x); waterSurfaceMaterial.SetFloat("_Scroll",distanceTravelled); }
-        float pitch = jumpTime < 0 ? 0f : Mathf.Lerp(-14f, 10f, jumpTime);
+        if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX",player.position.x); waterSurfaceMaterial.SetFloat("_Scroll",distanceTravelled); waterSurfaceMaterial.SetVector("_PlayerPos",new Vector4(player.position.x,JumpOffset,player.position.z,0)); }
+        float pitch = jumpTime < 0 ? (Ducking ? 5f : 0f) : Mathf.Lerp(-14f, 10f, jumpTime);
         player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(pitch, 0, Mathf.Clamp((desired.x-player.position.x)*-12f,-13f,13f)), Time.deltaTime*7f);
         movingWorld.position += Vector3.back * (speed * Time.deltaTime);
         // wake spray grows with speed and boost, and stops while the hull is out of the water
@@ -297,6 +387,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         }
         ApplyAtmosphere();
         FollowCamera();
+        UpdateExtras(speed);
         SpawnShoreUpTo(distanceTravelled + ShoreAhead);
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
         RecycleWater();
@@ -304,7 +395,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         // look further ahead at speed so rows still appear ~5 s out instead of popping in close
         while (nextRowAt < distanceTravelled + Mathf.Max(spawnAhead, RunSpeed * 5f))
         {
-            int pattern = Random.Range(0, 10);
+            int pattern = Random.Range(0, 13);
             int selected = Random.Range(0, 3);
             bool hazards = nextRowAt > 60f && obstaclePrefabs != null && obstaclePrefabs.Length > 0;
             float rowLength = 0f;
@@ -315,6 +406,10 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             else if (hazards && pattern <= 6) CreateObstacleRow(selected, nextRowAt);
             else if (hazards && pattern == 7 && rampPrefab) CreateRampRow(selected, nextRowAt);
             else if (pattern == 8 && fuelPrefab) CreateFuelPickup(selected, nextRowAt);
+            else if (hazards && pattern == 9) CreateLogRow(selected, nextRowAt, nextRowAt > 260f && Random.value < .4f);
+            else if (hazards && pattern == 10) CreateBannerRow(selected, nextRowAt, nextRowAt > 320f && Random.value < .35f);
+            else if (hazards && pattern == 11) CreateBiomeHazardRow(selected, nextRowAt);
+            else if (pattern == 12 && nextRowAt > 150f) CreatePowerUp(selected, nextRowAt);
             else CreateCoinRow(selected, nextRowAt, Random.Range(1, 3));
             // rows spread out in metres as speed grows, but less than speed does, so they still arrive faster
             nextRowAt += rowLength + Random.Range(16f, 24f) * Mathf.Lerp(1f, 1.6f, SpeedProgress);
@@ -337,10 +432,12 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) ChangeLane(-1);
         if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) ChangeLane(1);
         if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.Space)) PlayerJump();
-        if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) Dive();
+        if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) DownAction();
+        if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P)) TogglePause();
         if (Input.touchCount == 0) return;
         var touch = Input.GetTouch(0);
-        if (touch.phase == TouchPhase.Began) { touchStart = touch.position; touchSwiped = false; }
+        // touches that start on a HUD button (pause) are not steering
+        if (touch.phase == TouchPhase.Began) { touchStart = touch.position; touchSwiped = ui != null && ui.IsOverUI(touch.fingerId); }
         // a swipe fires as soon as the finger has moved far enough, not on release, so it feels instant
         if (!touchSwiped && (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Ended))
         {
@@ -350,7 +447,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 touchSwiped = true;
                 if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y)) ChangeLane(delta.x > 0 ? 1 : -1);
                 else if (delta.y > 0) PlayerJump();
-                else Dive();
+                else DownAction();
             }
             else if (touch.phase == TouchPhase.Ended) ChangeLane(touch.position.x > Screen.width * .5f ? 1 : -1);
         }
@@ -361,6 +458,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         activeJumpDuration = duration; activeJumpHeight = height;
         jumpTime = 0f; landingCued = false;
         if (rider) rider.Jump();
+        duckLeft = 0f;
+        audioFx?.Jump();
         TakeoffSplash(height);
     }
 
@@ -384,7 +483,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         int next = Mathf.Clamp(lane + step, 0, 2);
         if (next != lane && rider) rider.Lean(step);
         // carving throws a sheet of water off the outside of the turn
-        if (next != lane && jumpTime < 0) CarveSplash(step);
+        if (next != lane && jumpTime < 0) { CarveSplash(step); audioFx?.Carve(); }
+        if (next != lane) prevLane = lane;
         lane = next;
     }
 
@@ -430,8 +530,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
         RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
         sun = new GameObject("Biome sunlight").AddComponent<Light>();
-        sun.type=LightType.Directional; sun.shadows=LightShadows.Soft; sun.shadowStrength=.55f;
-        QualitySettings.shadowDistance=60;
+        sun.type=LightType.Directional; sun.shadows=LightShadows.Soft; sun.shadowStrength=.7f; sun.shadowBias=.03f; sun.shadowNormalBias=.3f;
+        QualitySettings.shadowDistance=70;
     }
 
     void CreateOcean()
@@ -529,6 +629,10 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         gameCamera.transform.position=CameraOffset; gameCamera.transform.rotation=Quaternion.Euler(10,0,0);
         gameCamera.aspect=9f/16f;
         gameCamera.gameObject.AddComponent<AudioListener>();
+        // depth powers the water's contact foam and the soft particles
+        gameCamera.depthTextureMode|=DepthTextureMode.Depth;
+        // post-processing costs too much on the low quality tiers
+        if(QualitySettings.GetQualityLevel()>=3) postFx=RunnerPostFX.Attach(gameCamera,postFxShader?postFxShader:Shader.Find("JetskiRunner/PostFX"));
         var skyShaderToUse=skyShader?skyShader:Shader.Find("JetskiRunner/SkyGradient");
         if(skyShaderToUse)
         {
@@ -699,6 +803,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         EmitRing(at,3.4f*k,drift);
         EmitRing(at+Vector3.back*.6f,2f*k,drift);
         cameraKick=Mathf.Max(cameraKick,.35f*k);
+        audioFx?.Splash(k);
     }
 
     void CarveSplash(int step)
@@ -713,6 +818,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         float drift=driftOverride??CurrentSpeed;
         EmitDrops(WaterAt(at),Mathf.RoundToInt(40*scale),Vector3.zero,4f*scale,3f,7.5f*scale,.5f,1.2f,drift);
         EmitRing(WaterAt(at),3f*scale,drift);
+        audioFx?.Splash(scale);
     }
 
     // Storm rain and volcanic embers follow the camera; ApplyAtmosphere sets their emission per biome.
@@ -952,9 +1058,16 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     {
         foreach(var t in recycledWater) if(t!=null && t.position.z < -16f) t.position += Vector3.forward*160f;
     }
-    public void Collect(GameObject pickup) { coins++; Destroy(pickup); }
+    public void Collect(GameObject pickup) { AddCoin(); Destroy(pickup); }
 
-    void Crash(){ ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f; crashed=true; crashTime=Time.time; if(rider) rider.Fall(); }
+    void Crash()
+    {
+        ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f;
+        crashed=true; crashTime=Time.time; duckLeft=0;
+        if(rider) rider.Fall();
+        audioFx?.Crash();
+        FinishRun();
+    }
 
     void OnTrigger(RunnerTrigger trigger)
     {
@@ -962,89 +1075,36 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         switch(trigger.Kind)
         {
             case TriggerKind.Coin: Collect(trigger.gameObject); break;
-            case TriggerKind.Fuel: boostLeft=boostDuration; Destroy(trigger.gameObject); break;
-            case TriggerKind.Ramp: if(jumpTime<0) StartJump(jumpDuration,jumpHeight); break;
+            case TriggerKind.Fuel: boostLeft=BoostTime; audioFx?.PowerUp(); Destroy(trigger.gameObject); break;
+            case TriggerKind.Magnet: case TriggerKind.Shield: case TriggerKind.DoubleCoins: Pickup(trigger); break;
+            case TriggerKind.Ramp: if(jumpTime<0){ duckLeft=0; StartJump(jumpDuration,jumpHeight); } break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
-                if(boostLeft>0||TestInvulnerable){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; } // boost smashes through
+                if(boostLeft>0){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; } // boost smashes through
+                if(AbsorbHit(trigger) || TryStumble(trigger)) return;
                 Crash();
                 break;
-            case TriggerKind.Ship: if(TestInvulnerable) return; Crash(); break; // too big to jump or smash: change lanes
+            case TriggerKind.Overhead:                 // hanging sail / icicles: only ducking gets under
+                if(Ducking) return;
+                if(boostLeft>0){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); return; }
+                if(AbsorbHit(trigger) || TryStumble(trigger)) return;
+                Crash();
+                break;
+            case TriggerKind.Strike:                   // lightning: nothing saves you but the shield
+                if(AbsorbHit(trigger)) return;
+                Crash();
+                break;
+            case TriggerKind.Ship:                     // too big to jump or smash: change lanes
+                if(AbsorbHit(trigger) || TryStumble(trigger)) return;
+                Crash();
+                break;
         }
     }
 
-    void OnGUI()
-    {
-        if(distanceStyle==null)
-        {
-            distanceStyle=new GUIStyle(GUI.skin.label){fontSize=Mathf.RoundToInt(Screen.height*.052f),fontStyle=FontStyle.Bold,alignment=TextAnchor.MiddleCenter};
-            distanceStyle.normal.textColor=Color.white;
-            coinStyle=new GUIStyle(distanceStyle){fontSize=Mathf.RoundToInt(Screen.height*.032f),alignment=TextAnchor.MiddleRight};
-            hintStyle=new GUIStyle(distanceStyle){fontSize=Mathf.RoundToInt(Screen.height*.02f)};
-            boostStyle=new GUIStyle(distanceStyle){fontSize=Mathf.RoundToInt(Screen.height*.03f)};
-            boostStyle.normal.textColor=new Color(1f,.55f,.2f);
-            shadowStyle=new GUIStyle(distanceStyle); shadowStyle.normal.textColor=new Color(0,0,0,.85f);
-        }
-        float u=Screen.height*.01f;
-        var panel=new Color(.02f,.06f,.11f,.92f);
-        var pauseRect=new Rect(u*2.4f,u*3.2f,u*7f,u*7f);
-        Fill(pauseRect,panel);
-        Fill(new Rect(pauseRect.x+u*1.9f,pauseRect.y+u*1.6f,u*1.2f,u*3.8f),Color.white);
-        Fill(new Rect(pauseRect.x+u*3.9f,pauseRect.y+u*1.6f,u*1.2f,u*3.8f),Color.white);
-        if(!crashed && Event.current.type==EventType.MouseDown && pauseRect.Contains(Event.current.mousePosition)) { Time.timeScale=Time.timeScale>0?0:1; Event.current.Use(); }
-        // distance with a hard drop shadow
-        var distanceRect=new Rect(Screen.width*.2f,u*3.2f,Screen.width*.6f,u*7f);
-        string distance=Mathf.FloorToInt(distanceTravelled).ToString("N0")+" m";
-        GUI.Label(new Rect(distanceRect.x+u*.35f,distanceRect.y+u*.45f,distanceRect.width,distanceRect.height),distance,shadowStyle);
-        GUI.Label(distanceRect,distance,distanceStyle);
-        // coin badge
-        var coinRect=new Rect(Screen.width-u*14.5f,u*4.2f,u*12f,u*5f);
-        Fill(coinRect,panel);
-        Fill(new Rect(coinRect.x-u*1.2f,coinRect.y-u*.6f,u*6.2f,u*6.2f),new Color(.98f,.73f,.16f),true);
-        GUI.Label(new Rect(coinRect.x,coinRect.y,coinRect.width-u*1.2f,coinRect.height),coins.ToString("000"),coinStyle);
-        if(Time.timeScale==0) GUI.Label(new Rect(0,Screen.height*.42f,Screen.width,Screen.height*.08f),"PAUSED",distanceStyle);
-        // biome banner when a new zone begins (fades out)
-        if(bannerTime>0 && !crashed)
-        {
-            if(bannerStyle==null){ bannerStyle=new GUIStyle(distanceStyle){fontSize=Mathf.RoundToInt(Screen.height*.036f)}; }
-            float alpha=Mathf.Clamp01(bannerTime/.6f)*Mathf.Clamp01((2.8f-bannerTime)/.25f);
-            var bannerRect=new Rect(0,Screen.height*.19f,Screen.width,Screen.height*.06f);
-            Fill(new Rect(Screen.width*.12f,bannerRect.y,Screen.width*.76f,bannerRect.height),new Color(.02f,.06f,.11f,.7f*alpha));
-            var previous=GUI.color; GUI.color=new Color(1,1,1,alpha);
-            GUI.Label(bannerRect,BiomeNames[(int)shownBiome],bannerStyle);
-            GUI.color=previous;
-        }
-        if(boostLeft>0) GUI.Label(new Rect(0,Screen.height*.12f,Screen.width,Screen.height*.05f),"BOOST!  "+boostLeft.ToString("0.0")+"s",boostStyle);
-        if(crashed)
-        {
-            GUI.Label(new Rect(0,Screen.height*.38f,Screen.width,Screen.height*.08f),"CRASHED!",distanceStyle);
-            GUI.Label(new Rect(0,Screen.height*.47f,Screen.width,Screen.height*.05f),"TAP OR PRESS SPACE TO RESTART",hintStyle);
-        }
-        else if(distanceTravelled<40f) GUI.Label(new Rect(0,Screen.height*.91f,Screen.width,Screen.height*.045f),"SWIPE LEFT / RIGHT TO STEER  -  UP TO JUMP",hintStyle);
-    }
+    // order matters: everything from Ramp on is a hazard (revive clears them), from Obstacle on shrinks its trigger
+    enum TriggerKind { Coin, Fuel, Magnet, Shield, DoubleCoins, Ramp, Obstacle, Overhead, Strike, Ship }
 
-    static Texture2D circleTexture;
-    static void Fill(Rect rect,Color color,bool circle=false)
-    {
-        if(circle && circleTexture==null)
-        {
-            circleTexture=new Texture2D(64,64,TextureFormat.RGBA32,false);
-            for(int y=0;y<64;y++) for(int x=0;x<64;x++)
-            {
-                float d=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(32,32));
-                float shade=d<22?1f:.8f;
-                circleTexture.SetPixel(x,y,new Color(shade,shade*.95f,shade*.85f,Mathf.Clamp01(31.5f-d)));
-            }
-            circleTexture.Apply();
-        }
-        var previous=GUI.color; GUI.color=color;
-        GUI.DrawTexture(rect,circle?circleTexture:Texture2D.whiteTexture);
-        GUI.color=previous;
-    }
-
-    enum TriggerKind { Coin, Fuel, Ramp, Obstacle, Ship }
-
-    sealed class RunnerTrigger:MonoBehaviour
+    sealed partial class RunnerTrigger:MonoBehaviour
     {
         JetskiRunnerGame game;
         public TriggerKind Kind { get; private set; }
@@ -1077,8 +1137,14 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 if(knockedFor>1.6f) Destroy(gameObject);
                 return;
             }
+            UpdateHazard();
             if(Kind==TriggerKind.Coin) transform.Rotate(0,32f*Time.deltaTime,0,Space.World);
             else if(Kind==TriggerKind.Fuel) transform.Rotate(0,60f*Time.deltaTime,0,Space.World);
+            else if(Kind>=TriggerKind.Magnet && Kind<=TriggerKind.DoubleCoins)
+            {
+                transform.Rotate(0,90f*Time.deltaTime,0,Space.World);
+                var p=transform.localPosition; p.y=WaterY+1.25f+Mathf.Sin(Time.time*3f)*.15f; transform.localPosition=p;
+            }
             else if(Kind==TriggerKind.Ship && !game.crashed)
             {
                 var p=transform.localPosition;
