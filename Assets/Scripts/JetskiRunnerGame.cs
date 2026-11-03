@@ -30,18 +30,33 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     [SerializeField] GameObject dockBarrelPrefab;
     [SerializeField] Shader skyShader;
     [SerializeField] Material sprayMaterial;
+    [Header("Water splash FX (Jetski Runner > Apply Water Splash FX)")]
+    [SerializeField] Material splashMaterial;
+    [SerializeField] Material foamRingMaterial;
     [SerializeField] GameObject iceTunnelPrefab;
     [SerializeField] float iceTunnelLength = 24f;
     [SerializeField] float boostMultiplier = 1.6f;
     [SerializeField] float boostDuration = 3.5f;
+    [Tooltip("Ramp jump")]
     [SerializeField] float jumpDuration = 1.1f;
     [SerializeField] float jumpHeight = 2.2f;
+    [Header("Speed ramp")]
+    [Tooltip("Cruising speed the run approaches; forwardSpeed is the starting speed.")]
+    [SerializeField] float maxSpeed = 30f;
+    [Tooltip("Metres for the speed to cover ~63% of the way from start to max.")]
+    [SerializeField] float speedRampDistance = 1500f;
+    [Header("Player jump (swipe up / Up / W / Space)")]
+    [SerializeField] float playerJumpDuration = .8f;
+    [SerializeField] float playerJumpHeight = 1.7f;
 
     const float WaterY = -.42f;
     Transform player, movingWorld;
     TropicalScenery scenery;
     readonly float[] nextShoreAt = { -12f, -2f };
     readonly List<ParticleSystem> sprays = new();
+    readonly List<float> sprayRates = new();
+    ParticleSystem splashDrops, splashRings;
+    float cameraKick, peakFallSpeed;
     Camera gameCamera;
     readonly List<Transform> recycledWater = new();
     readonly List<GameObject> spawned = new();
@@ -57,13 +72,20 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     Material waterSurfaceMaterial;
     static Shader fallbackShader;
     int lane = 1, coins;
-    float distanceTravelled, nextRowAt = 32f, laneBlend, boostLeft, jumpTime = -1f;
-    bool crashed, landingCued;
+    float distanceTravelled, nextRowAt = 32f, laneBlend, boostLeft, jumpTime = -1f, crashTime;
+    float activeJumpDuration = 1f, activeJumpHeight;
+    bool crashed, landingCued, touchSwiped;
     PirateRider rider;
     Vector2 touchStart;
     GUIStyle distanceStyle, coinStyle, hintStyle, boostStyle, shadowStyle;
-    float CurrentSpeed => crashed ? 0f : (forwardSpeed + Mathf.Min(distanceTravelled * .004f, 6f)) * (boostLeft > 0 ? boostMultiplier : 1f);
-    float JumpOffset => jumpTime < 0 ? 0f : 4f * jumpHeight * jumpTime * (1f - jumpTime);
+    // Subway-Surfers-style ramp: quick early gains that ease off towards maxSpeed.
+    float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance)));
+    // 0 at the start speed, 1 at max speed; scales spacing, steering and jump timing.
+    float SpeedProgress => Mathf.InverseLerp(forwardSpeed, Mathf.Max(maxSpeed, forwardSpeed + .01f), RunSpeed);
+    float CurrentSpeed => crashed ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f);
+    float JumpOffset => jumpTime < 0 ? 0f : 4f * activeJumpHeight * jumpTime * (1f - jumpTime);
+    public float Speed => CurrentSpeed;
+    public bool Airborne => jumpTime >= 0;
 
     // Read-only state for the HUD, tests and other systems.
     public EnvironmentPreset CurrentBiome => BiomeAt(distanceTravelled);
@@ -239,31 +261,39 @@ public sealed class JetskiRunnerGame : MonoBehaviour
 
     void Update()
     {
-        if (crashed) { if (RestartPressed()) UnityEngine.SceneManagement.SceneManager.LoadScene(gameObject.scene.buildIndex); return; }
+        // short grace period so a jump tap spammed into a crash does not restart instantly
+        if (crashed) { if (Time.time - crashTime > .7f && RestartPressed()) UnityEngine.SceneManagement.SceneManager.LoadScene(gameObject.scene.buildIndex); return; }
         if (Time.timeScale == 0) return;
-        ReadLaneInput();
+        ReadInput();
         float speed = CurrentSpeed;
         distanceTravelled += speed * Time.deltaTime;
         boostLeft = Mathf.Max(0, boostLeft - Time.deltaTime);
         if (jumpTime >= 0)
         {
-            jumpTime += Time.deltaTime / jumpDuration;
+            jumpTime += Time.deltaTime / activeJumpDuration;
             if (jumpTime >= .72f && !landingCued) { landingCued = true; if (rider) rider.Land(); }
-            if (jumpTime >= 1f) jumpTime = -1f;
+            // vertical speed at touch-down (d/dt of the jump arc) sizes the landing splash
+            peakFallSpeed = 4f * activeJumpHeight * Mathf.Abs(1f - 2f * Mathf.Min(jumpTime, 1f)) / activeJumpDuration;
+            if (jumpTime >= 1f) { jumpTime = -1f; LandingSplash(peakFallSpeed); }
         }
         laneBlend = Mathf.MoveTowards(laneBlend, 1f, Time.deltaTime * 5f);
         var desired = new Vector3((lane - 1) * laneWidth, .15f, 0);
-        var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Time.deltaTime));
+        // steering gets snappier as the run speeds up so lane changes keep pace with the traffic
+        var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
         position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f);
         player.position = position;
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX",player.position.x); waterSurfaceMaterial.SetFloat("_Scroll",distanceTravelled); }
         float pitch = jumpTime < 0 ? 0f : Mathf.Lerp(-14f, 10f, jumpTime);
         player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(pitch, 0, Mathf.Clamp((desired.x-player.position.x)*-12f,-13f,13f)), Time.deltaTime*7f);
         movingWorld.position += Vector3.back * (speed * Time.deltaTime);
-        foreach (var spray in sprays)
+        // wake spray grows with speed and boost, and stops while the hull is out of the water
+        float wake = Mathf.Lerp(.75f, 1.6f, SpeedProgress) * (boostLeft > 0 ? 1.45f : 1f);
+        for (int i = 0; i < sprays.Count; i++)
         {
+            var spray = sprays[i];
             var velocity = spray.velocityOverLifetime; velocity.z = -speed;
-            var emission = spray.emission; emission.enabled = jumpTime < 0;
+            var emission = spray.emission; emission.enabled = jumpTime < 0; emission.rateOverTime = sprayRates[i] * wake;
+            var main = spray.main; main.startSpeedMultiplier = wake;
         }
         ApplyAtmosphere();
         FollowCamera();
@@ -271,7 +301,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
         RecycleWater();
         CleanupPassed();
-        while (nextRowAt < distanceTravelled + spawnAhead)
+        // look further ahead at speed so rows still appear ~5 s out instead of popping in close
+        while (nextRowAt < distanceTravelled + Mathf.Max(spawnAhead, RunSpeed * 5f))
         {
             int pattern = Random.Range(0, 10);
             int selected = Random.Range(0, 3);
@@ -285,7 +316,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             else if (hazards && pattern == 7 && rampPrefab) CreateRampRow(selected, nextRowAt);
             else if (pattern == 8 && fuelPrefab) CreateFuelPickup(selected, nextRowAt);
             else CreateCoinRow(selected, nextRowAt, Random.Range(1, 3));
-            nextRowAt += rowLength + Random.Range(16f, 24f);
+            // rows spread out in metres as speed grows, but less than speed does, so they still arrive faster
+            nextRowAt += rowLength + Random.Range(16f, 24f) * Mathf.Lerp(1f, 1.6f, SpeedProgress);
         }
     }
 
@@ -300,24 +332,59 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Return) ||
         Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began);
 
-    void ReadLaneInput()
+    void ReadInput()
     {
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) ChangeLane(-1);
         if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) ChangeLane(1);
+        if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.Space)) PlayerJump();
+        if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) Dive();
         if (Input.touchCount == 0) return;
         var touch = Input.GetTouch(0);
-        if (touch.phase == TouchPhase.Began) touchStart = touch.position;
-        if (touch.phase == TouchPhase.Ended)
+        if (touch.phase == TouchPhase.Began) { touchStart = touch.position; touchSwiped = false; }
+        // a swipe fires as soon as the finger has moved far enough, not on release, so it feels instant
+        if (!touchSwiped && (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Ended))
         {
-            float dx = touch.position.x - touchStart.x;
-            if (Mathf.Abs(dx) > Screen.width * .08f) ChangeLane(dx > 0 ? 1 : -1);
-            else ChangeLane(touch.position.x > Screen.width * .5f ? 1 : -1);
+            var delta = touch.position - touchStart;
+            if (delta.magnitude > Screen.height * .045f)
+            {
+                touchSwiped = true;
+                if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y)) ChangeLane(delta.x > 0 ? 1 : -1);
+                else if (delta.y > 0) PlayerJump();
+                else Dive();
+            }
+            else if (touch.phase == TouchPhase.Ended) ChangeLane(touch.position.x > Screen.width * .5f ? 1 : -1);
         }
+    }
+
+    void StartJump(float duration, float height)
+    {
+        activeJumpDuration = duration; activeJumpHeight = height;
+        jumpTime = 0f; landingCued = false;
+        if (rider) rider.Jump();
+        TakeoffSplash(height);
+    }
+
+    // Hop off the water; a little shorter at top speed so the landing stays readable.
+    void PlayerJump()
+    {
+        if (jumpTime >= 0) return;
+        StartJump(playerJumpDuration * Mathf.Lerp(1f, .82f, SpeedProgress), playerJumpHeight);
+    }
+
+    // Swipe down in the air: drop straight back to the water, keeping the current height.
+    void Dive()
+    {
+        if (jumpTime < 0 || jumpTime >= .9f) return;
+        float t = jumpTime > .5f ? jumpTime : 1f - jumpTime;  // same height, now on the way down
+        activeJumpDuration *= .4f;
+        jumpTime = t;
     }
     void ChangeLane(int step)
     {
         int next = Mathf.Clamp(lane + step, 0, 2);
         if (next != lane && rider) rider.Lean(step);
+        // carving throws a sheet of water off the outside of the turn
+        if (next != lane && jumpTime < 0) CarveSplash(step);
         lane = next;
     }
 
@@ -478,42 +545,174 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     {
         var target=CameraOffset+new Vector3(player.position.x*.78f,JumpOffset*.35f,0);
         gameCamera.transform.position=Vector3.Lerp(gameCamera.transform.position,target,1f-Mathf.Exp(-7f*Time.deltaTime));
+        // short dip + shake on splash-down
+        if(cameraKick>0)
+        {
+            cameraKick=Mathf.MoveTowards(cameraKick,0f,Time.deltaTime*2.2f);
+            gameCamera.transform.position+=new Vector3(Mathf.Sin(Time.time*55f)*.06f,-.22f-Mathf.Sin(Time.time*47f)*.05f,0)*cameraKick;
+        }
         gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,atmosphere.fov+(boostLeft>0?7:0),Time.deltaTime*3f);
     }
 
     // White spray fans off both sides of the hull plus a rooster tail, as in the gameplay render.
     void CreateSpray()
     {
-        if(!sprayMaterial) return;
-        sprays.Add(MakeSpray("Left spray fan",new Vector3(-.55f,-.25f,-.2f),new Vector3(-1f,.42f,-.55f),200,6.5f,.32f));
-        sprays.Add(MakeSpray("Right spray fan",new Vector3(.55f,-.25f,-.2f),new Vector3(1f,.42f,-.55f),200,6.5f,.32f));
-        sprays.Add(MakeSpray("Rooster tail",new Vector3(0,-.2f,-1.3f),new Vector3(0,.55f,-1f),140,4.5f,.38f));
+        var mat=splashMaterial?splashMaterial:sprayMaterial;
+        if(!mat) return;
+        if(splashMaterial)
+        {
+            // Hull spray: low wide sheets peeling off both chines, a tall rooster tail and fine bow mist.
+            sprays.Add(MakeSpray("Left spray sheet",new Vector3(-.6f,-.28f,-.1f),new Vector3(-1f,.5f,-.7f),55,5.2f,.75f,mat,.45f,.7f,22,.95f));
+            sprays.Add(MakeSpray("Right spray sheet",new Vector3(.6f,-.28f,-.1f),new Vector3(1f,.5f,-.7f),55,5.2f,.75f,mat,.45f,.7f,22,.95f));
+            sprays.Add(MakeSpray("Rooster tail",new Vector3(0,-.25f,-1.35f),new Vector3(0,.85f,-1f),45,6.2f,1.05f,mat,.6f,1f,9,.9f));
+            sprays.Add(MakeSpray("Bow mist",new Vector3(0,-.3f,.9f),new Vector3(0,.35f,-1f),30,2.2f,.45f,mat,.3f,.55f,55,.45f));
+            sprays.Add(MakeSpray("Wake droplets",new Vector3(0,-.25f,-1.2f),new Vector3(0,.6f,-1f),70,4f,.22f,mat,.5f,.9f,35,1f));
+        }
+        else
+        {
+            sprays.Add(MakeSpray("Left spray fan",new Vector3(-.55f,-.25f,-.2f),new Vector3(-1f,.42f,-.55f),200,6.5f,.32f,mat));
+            sprays.Add(MakeSpray("Right spray fan",new Vector3(.55f,-.25f,-.2f),new Vector3(1f,.42f,-.55f),200,6.5f,.32f,mat));
+            sprays.Add(MakeSpray("Rooster tail",new Vector3(0,-.2f,-1.3f),new Vector3(0,.55f,-1f),140,4.5f,.38f,mat));
+        }
+        foreach(var s in sprays) sprayRates.Add(s.emission.rateOverTime.constant);
+        CreateSplashSystems();
     }
-    ParticleSystem MakeSpray(string name,Vector3 local,Vector3 direction,float rate,float speed,float size)
+    ParticleSystem MakeSpray(string name,Vector3 local,Vector3 direction,float rate,float speed,float size,Material material,
+        float minLife=.45f,float maxLife=.8f,float coneAngle=14,float alpha=.85f)
     {
         var go=new GameObject(name); go.transform.SetParent(player,false);
         go.transform.localPosition=local; go.transform.localRotation=Quaternion.LookRotation(direction.normalized);
         var ps=go.AddComponent<ParticleSystem>();
         ps.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
         var main=ps.main;
-        main.startLifetime=new ParticleSystem.MinMaxCurve(.45f,.8f);
+        main.startLifetime=new ParticleSystem.MinMaxCurve(minLife,maxLife);
         main.startSpeed=new ParticleSystem.MinMaxCurve(speed*.6f,speed);
         main.startSize=new ParticleSystem.MinMaxCurve(size*.35f,size);
-        main.startColor=new Color(1,1,1,.85f);
+        main.startRotation=new ParticleSystem.MinMaxCurve(0,Mathf.PI*2f);
+        main.startColor=new Color(1,1,1,alpha);
         main.gravityModifier=1.4f;
         main.simulationSpace=ParticleSystemSimulationSpace.World;
         main.maxParticles=900;
         var emission=ps.emission; emission.rateOverTime=rate;
-        var shape=ps.shape; shape.shapeType=ParticleSystemShapeType.Cone; shape.angle=14; shape.radius=.12f;
+        var shape=ps.shape; shape.shapeType=ParticleSystemShapeType.Cone; shape.angle=coneAngle; shape.radius=.12f;
         var velocity=ps.velocityOverLifetime; velocity.enabled=true; velocity.space=ParticleSystemSimulationSpace.World;
         velocity.x=new ParticleSystem.MinMaxCurve(0); velocity.y=new ParticleSystem.MinMaxCurve(0); velocity.z=new ParticleSystem.MinMaxCurve(-forwardSpeed);
         var sizeLife=ps.sizeOverLifetime; sizeLife.enabled=true; sizeLife.size=new ParticleSystem.MinMaxCurve(1,AnimationCurve.Linear(0,.6f,1,1.6f));
         var fade=ps.colorOverLifetime; fade.enabled=true;
         var gradient=new Gradient(); gradient.SetKeys(new[]{new GradientColorKey(Color.white,0),new GradientColorKey(Color.white,1)},new[]{new GradientAlphaKey(.9f,0),new GradientAlphaKey(.6f,.5f),new GradientAlphaKey(0,1)});
         fade.color=gradient;
-        var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=sprayMaterial;
+        var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=material;
         ps.Play();
         return ps;
+    }
+
+    // ---------- one-shot splashes (takeoff, landing, carving, impacts) ----------
+
+    void CreateSplashSystems()
+    {
+        if(!splashMaterial) return;
+        splashDrops=MakeBurstSystem("Splash droplets",splashMaterial,1.5f,false);
+        if(foamRingMaterial) splashRings=MakeBurstSystem("Splash foam rings",foamRingMaterial,0f,true);
+    }
+
+    static ParticleSystem MakeBurstSystem(string name,Material material,float gravity,bool flatOnWater)
+    {
+        var ps=new GameObject(name).AddComponent<ParticleSystem>();
+        ps.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main=ps.main;
+        main.simulationSpace=ParticleSystemSimulationSpace.World; main.gravityModifier=gravity;
+        main.maxParticles=flatOnWater?60:1500; main.playOnAwake=false; main.loop=false;
+        var emission=ps.emission; emission.enabled=false;
+        var shape=ps.shape; shape.enabled=false;
+        var sizeLife=ps.sizeOverLifetime; sizeLife.enabled=true;
+        sizeLife.size=new ParticleSystem.MinMaxCurve(1,flatOnWater?AnimationCurve.EaseInOut(0,.35f,1,1.6f):new AnimationCurve(new Keyframe(0,.5f),new Keyframe(.25f,1f),new Keyframe(1,.7f)));
+        var fade=ps.colorOverLifetime; fade.enabled=true;
+        var g=new Gradient();
+        g.SetKeys(new[]{new GradientColorKey(Color.white,0),new GradientColorKey(Color.white,1)},
+                  flatOnWater?new[]{new GradientAlphaKey(.9f,0),new GradientAlphaKey(.6f,.45f),new GradientAlphaKey(0,1)}
+                             :new[]{new GradientAlphaKey(1f,0),new GradientAlphaKey(.85f,.6f),new GradientAlphaKey(0,1)});
+        fade.color=g;
+        var r=ps.GetComponent<ParticleSystemRenderer>(); r.sharedMaterial=material;
+        if(flatOnWater){ r.renderMode=ParticleSystemRenderMode.HorizontalBillboard; r.sortingFudge=10; }
+        return ps;
+    }
+
+    // drift: how fast the water itself moves past the camera, so splashes stay where they hit the water
+    void EmitDrops(Vector3 origin,int count,Vector3 baseVelocity,float spread,float upMin,float upMax,float sizeMin,float sizeMax,float drift)
+    {
+        if(!splashDrops) return;
+        var p=new ParticleSystem.EmitParams();
+        for(int i=0;i<count;i++)
+        {
+            var dir=Random.insideUnitCircle*spread;
+            p.position=origin+new Vector3(Random.Range(-.25f,.25f),0,Random.Range(-.25f,.25f));
+            p.velocity=baseVelocity+new Vector3(dir.x,Random.Range(upMin,upMax),dir.y-drift);
+            p.startSize=Random.Range(sizeMin,sizeMax);
+            p.startLifetime=Random.Range(.55f,1.05f);
+            p.rotation=Random.Range(0f,360f);
+            p.startColor=new Color(1,1,1,Random.Range(.75f,1f));
+            splashDrops.Emit(p,1);
+        }
+    }
+
+    void EmitRing(Vector3 origin,float size,float drift)
+    {
+        if(!splashRings) return;
+        var p=new ParticleSystem.EmitParams
+        {
+            position=new Vector3(origin.x,WaterY+.04f,origin.z), velocity=new Vector3(0,0,-drift),
+            startSize=size, startLifetime=.9f, rotation=Random.Range(0f,360f), startColor=Color.white,
+        };
+        splashRings.Emit(p,1);
+    }
+
+    Vector3 WaterAt(Vector3 p,float forward=0f)=>new(p.x,WaterY+.05f,p.z+forward);
+
+    void TakeoffSplash(float height)
+    {
+        float k=Mathf.Clamp(height/1.7f,.8f,1.4f), drift=CurrentSpeed;
+        EmitDrops(WaterAt(player.position,-.8f),Mathf.RoundToInt(28*k),new Vector3(0,0,-1.5f),3.2f,2.5f,5.5f*k,.35f,.85f,drift);
+        EmitRing(WaterAt(player.position,-.4f),2.2f*k,drift);
+    }
+
+    // Splash-down: a crown thrown outwards, a tall central plume, two spreading rings and a camera dip.
+    void LandingSplash(float fallSpeed)
+    {
+        float k=Mathf.Clamp(fallSpeed/9f,.6f,1.8f), drift=CurrentSpeed;
+        var at=WaterAt(player.position,.2f);
+        if(splashDrops)
+        {
+            int crown=Mathf.RoundToInt(46*k);
+            var p=new ParticleSystem.EmitParams();
+            for(int i=0;i<crown;i++)
+            {
+                float a=i/(float)crown*Mathf.PI*2f+Random.Range(-.1f,.1f), out_=Random.Range(2.8f,4.6f)*k;
+                p.position=at+new Vector3(Mathf.Cos(a)*.7f,0,Mathf.Sin(a)*1.1f);
+                p.velocity=new Vector3(Mathf.Cos(a)*out_,Random.Range(3.2f,5.8f)*Mathf.Sqrt(k),Mathf.Sin(a)*out_*.6f-drift);
+                p.startSize=Random.Range(.45f,1.05f)*Mathf.Sqrt(k); p.startLifetime=Random.Range(.6f,1.05f);
+                p.rotation=Random.Range(0f,360f); p.startColor=new Color(1,1,1,Random.Range(.8f,1f));
+                splashDrops.Emit(p,1);
+            }
+        }
+        // central plume just behind the hull so it frames the rider instead of covering them
+        EmitDrops(at+Vector3.back*.9f,Mathf.RoundToInt(10*k),Vector3.zero,.8f,4.5f*k,7f*k,.4f,.8f,drift);
+        EmitRing(at,3.4f*k,drift);
+        EmitRing(at+Vector3.back*.6f,2f*k,drift);
+        cameraKick=Mathf.Max(cameraKick,.35f*k);
+    }
+
+    void CarveSplash(int step)
+    {
+        float drift=CurrentSpeed, k=Mathf.Lerp(.85f,1.4f,SpeedProgress);
+        var side=WaterAt(player.position,-.3f)+Vector3.right*(-step*.55f);
+        EmitDrops(side,Mathf.RoundToInt(18*k),new Vector3(-step*3.8f*k,0,-1f),1.4f,2f,4.2f,.4f,.9f,drift);
+    }
+
+    void ImpactSplash(Vector3 at,float scale,float? driftOverride=null)
+    {
+        float drift=driftOverride??CurrentSpeed;
+        EmitDrops(WaterAt(at),Mathf.RoundToInt(40*scale),Vector3.zero,4f*scale,3f,7.5f*scale,.5f,1.2f,drift);
+        EmitRing(WaterAt(at),3f*scale,drift);
     }
 
     // Storm rain and volcanic embers follow the camera; ApplyAtmosphere sets their emission per biome.
@@ -608,6 +807,10 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     void CreateShipRow(int freeLane,float z)
     {
         int movingLane=distanceTravelled>120f && Random.value<.55f ? (freeLane+Random.Range(1,3))%3 : -1;
+        // A sailing ship sweeps its lane all the way to the player. It used to delete whatever was
+        // in the way, which made obstacles and coins vanish in plain sight; now it only sails into a clear lane.
+        if(movingLane>=0 && !LaneClear(movingLane,z+25f+shipLength)) movingLane=(movingLane==(freeLane+1)%3?(freeLane+2)%3:(freeLane+1)%3);
+        if(movingLane>=0 && !LaneClear(movingLane,z+25f+shipLength)) movingLane=-1;
         for(int laneIndex=0;laneIndex<3;laneIndex++)
         {
             if(laneIndex==freeLane) continue;
@@ -619,21 +822,27 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         CreateCoinRow(freeLane,z-2f,4);
     }
 
+    // True when nothing (pickup, obstacle, ramp or ship) sits in the lane between the player and 'untilZ'.
+    bool LaneClear(int laneIndex,float untilZ)
+    {
+        float x=(laneIndex-1)*laneWidth;
+        foreach(var go in spawned)
+            if(go && go.GetComponent<RunnerTrigger>() && Mathf.Abs(go.transform.localPosition.x-x)<laneWidth*.5f
+               && go.transform.position.z>-2f && go.transform.localPosition.z<untilZ)
+                return false;
+        return true;
+    }
+
     void SpawnShip(int laneIndex,float z,bool sailing)
     {
-        if(sailing)
-        {
-            // keep its lane clear of anything already spawned between the player and the ship
-            float x=(laneIndex-1)*laneWidth;
-            foreach(var go in spawned)
-                if(go && go.GetComponent<RunnerTrigger>() && Mathf.Abs(go.transform.localPosition.x-x)<laneWidth*.5f && go.transform.position.z>18f && go.transform.localPosition.z<z+shipLength)
-                    Destroy(go);
-        }
         var ship=SpawnAsset(pirateShipPrefab,laneIndex,z,TriggerKind.Ship);
         ship.name=sailing?"Pirate ship | sailing head-on":"Pirate ship | at anchor";
-        bool facePlayer=sailing||Random.value<.5f;
-        ship.transform.localRotation=Quaternion.Euler(0,facePlayer?180:0,0);
-        ship.GetComponent<RunnerTrigger>().SailSpeed=sailing?shipSailSpeed:0f;
+        // The prefab's bow points +Z; every ship turns its bow to the player (anchored ones used to be
+        // flipped at random, which read as ships sitting backwards).
+        var trigger=ship.GetComponent<RunnerTrigger>();
+        trigger.Yaw=180f+(sailing?0f:Random.Range(-8f,8f));
+        ship.transform.localRotation=Quaternion.Euler(0,trigger.Yaw,0);
+        trigger.SailSpeed=sailing?shipSailSpeed:0f;
     }
 
     void CreateCoinRow(int laneIndex,float z,int count)
@@ -745,6 +954,8 @@ public sealed class JetskiRunnerGame : MonoBehaviour
     }
     public void Collect(GameObject pickup) { coins++; Destroy(pickup); }
 
+    void Crash(){ ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f; crashed=true; crashTime=Time.time; if(rider) rider.Fall(); }
+
     void OnTrigger(RunnerTrigger trigger)
     {
         if(crashed) return;
@@ -752,14 +963,13 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         {
             case TriggerKind.Coin: Collect(trigger.gameObject); break;
             case TriggerKind.Fuel: boostLeft=boostDuration; Destroy(trigger.gameObject); break;
-            case TriggerKind.Ramp: if(jumpTime<0){ jumpTime=0f; landingCued=false; if(rider) rider.Jump(); } break;
+            case TriggerKind.Ramp: if(jumpTime<0) StartJump(jumpDuration,jumpHeight); break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
-                if(boostLeft>0||TestInvulnerable){ Destroy(trigger.gameObject); if(rider) rider.Hit(); return; } // boost smashes through
-                crashed=true;
-                if(rider) rider.Fall();
+                if(boostLeft>0||TestInvulnerable){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; } // boost smashes through
+                Crash();
                 break;
-            case TriggerKind.Ship: if(TestInvulnerable) return; crashed=true; if(rider) rider.Fall(); break; // too big to jump or smash: change lanes
+            case TriggerKind.Ship: if(TestInvulnerable) return; Crash(); break; // too big to jump or smash: change lanes
         }
     }
 
@@ -810,7 +1020,7 @@ public sealed class JetskiRunnerGame : MonoBehaviour
             GUI.Label(new Rect(0,Screen.height*.38f,Screen.width,Screen.height*.08f),"CRASHED!",distanceStyle);
             GUI.Label(new Rect(0,Screen.height*.47f,Screen.width,Screen.height*.05f),"TAP OR PRESS SPACE TO RESTART",hintStyle);
         }
-        else if(distanceTravelled<40f) GUI.Label(new Rect(0,Screen.height*.91f,Screen.width,Screen.height*.045f),"SWIPE TO CHANGE LANES",hintStyle);
+        else if(distanceTravelled<40f) GUI.Label(new Rect(0,Screen.height*.91f,Screen.width,Screen.height*.045f),"SWIPE LEFT / RIGHT TO STEER  -  UP TO JUMP",hintStyle);
     }
 
     static Texture2D circleTexture;
@@ -840,8 +1050,33 @@ public sealed class JetskiRunnerGame : MonoBehaviour
         public TriggerKind Kind { get; private set; }
         public void Init(JetskiRunnerGame owner,TriggerKind kind){ game=owner; Kind=kind; }
         public float SailSpeed { get; set; }
+        // Stored heading: reading it back from localEulerAngles after adding roll/pitch can flip it.
+        public float Yaw { get; set; }
+        Vector3 knockVelocity, knockSpin;
+        float knockedFor=-1f;
+
+        // Boost smash: tumble up and away instead of blinking out of existence.
+        public void Knock(float playerX)
+        {
+            if(knockedFor>=0) return;
+            knockedFor=0f;
+            foreach(var c in GetComponents<Collider>()) c.enabled=false;
+            float side=transform.position.x>=playerX?1f:-1f;
+            knockVelocity=new Vector3(side*Random.Range(5f,8f),Random.Range(7f,10f),Random.Range(6f,12f));
+            knockSpin=new Vector3(Random.Range(-540f,540f),Random.Range(-360f,360f),Random.Range(-540f,540f));
+        }
+
         void Update()
         {
+            if(knockedFor>=0)
+            {
+                knockedFor+=Time.deltaTime;
+                knockVelocity+=Physics.gravity*Time.deltaTime;
+                transform.position+=knockVelocity*Time.deltaTime;
+                transform.Rotate(knockSpin*Time.deltaTime,Space.World);
+                if(knockedFor>1.6f) Destroy(gameObject);
+                return;
+            }
             if(Kind==TriggerKind.Coin) transform.Rotate(0,32f*Time.deltaTime,0,Space.World);
             else if(Kind==TriggerKind.Fuel) transform.Rotate(0,60f*Time.deltaTime,0,Space.World);
             else if(Kind==TriggerKind.Ship && !game.crashed)
@@ -850,11 +1085,10 @@ public sealed class JetskiRunnerGame : MonoBehaviour
                 p.z-=SailSpeed*Time.deltaTime;
                 p.y=WaterY+Mathf.Sin(Time.time*1.3f+p.z)*.12f;
                 transform.localPosition=p;
-                float yaw=transform.localEulerAngles.y;
-                transform.localRotation=Quaternion.Euler(Mathf.Sin(Time.time*1.1f+p.z)*1.5f,yaw,Mathf.Sin(Time.time*.9f+p.x)*2.5f);
+                transform.localRotation=Quaternion.Euler(Mathf.Sin(Time.time*1.1f+p.z)*1.5f,Yaw,Mathf.Sin(Time.time*.9f+p.x)*2.5f);
             }
         }
         void OnTriggerEnter(Collider other)
-        { if(other.transform==game.player||other.transform.IsChildOf(game.player)) game.OnTrigger(this); }
+        { if(knockedFor<0 && (other.transform==game.player||other.transform.IsChildOf(game.player))) game.OnTrigger(this); }
     }
 }
