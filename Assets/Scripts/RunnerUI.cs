@@ -14,7 +14,8 @@ public sealed class RunnerUI : MonoBehaviour
     bool showShop, showSettings;
     Image curtain, loadingBar;
     RectTransform loadingDot;
-    Text loadingTip, playLabel;
+    Text loadingTip;
+    GameObject muteSlash;
     RectTransform playButton;
     float loadingShown, curtainTarget;
     static bool curtainClosed;       // the last scene left through the curtain, so this one opens it again
@@ -113,27 +114,92 @@ public sealed class RunnerUI : MonoBehaviour
         hint = Label(hintBack, "SWIPE  LEFT / RIGHT  STEER\nUP  JUMP  -  DOWN  DUCK", 36, Vector2.zero, new Vector2(940, 120), Anchor.Center, new Color(1, 1, 1, .95f));
     }
 
+    // Laid out from the menu design: sizes are its pixels at DesignScale, with the safe area taken off the edges.
+    const float DesignScale = 1.15f, SkySolid = 250f, SkyFade = 420f;
+
     void BuildMenu()
     {
         menu = Group("Main menu");
-        Shade(menu, true, 760f, .5f); Shade(menu, false, 760f, .7f);
-
-        var coins = Box(menu, new Vector2(-40, -40), new Vector2(290, 88), Panel, Anchor.TopRight);
-        Box(coins, new Vector2(-104, 0), new Vector2(66, 66), Gold).GetComponent<Image>().sprite = circle;
-        bankMenu = Label(coins, "0", 46, new Vector2(30, 0), new Vector2(200, 80), Anchor.Center);
+        Sky(menu);
+        var coins = ArtPill(menu, "UI/pill-coins", new Vector2(-24, -4), 262, 87, Anchor.TopRight, 96, 24);
+        bankMenu = Label(coins, "0", 46, new Vector2(30, 0), new Vector2(190, 80), Anchor.Center, Cream);
         bankMenu.alignment = TextAnchor.MiddleRight;
 
-        Label(menu, "JETSKI\nRUNNER", 170, new Vector2(0, -170), new Vector2(1000, 400), Anchor.Top).lineSpacing = .82f;
-        var ribbon = Box(menu, new Vector2(0, -575), new Vector2(560, 84), Gold, Anchor.Top);
-        Label(ribbon, "PIRATE ESCAPE", 50, Vector2.zero, new Vector2(540, 80), Anchor.Center, new Color(.2f, .09f, 0f));
-        var best = Box(menu, new Vector2(0, -680), new Vector2(420, 76), Panel, Anchor.Top);
-        bestMenu = Label(best, "BEST  0", 44, Vector2.zero, new Vector2(400, 70), Anchor.Center);
+        var sound = ArtButton(menu, "UI/sound", new Vector2(20, -4), Anchor.TopLeft, ToggleSound);
+        muteSlash = Box(sound, Vector2.zero, new Vector2(88, 9), new Color(.95f, .2f, .15f));
+        muteSlash.GetComponent<Image>().sprite = null; muteSlash.transform.localRotation = Quaternion.Euler(0, 0, 45f);
 
-        playLabel = TextButton(menu, "PLAY", new Vector2(0, 270), new Vector2(680, 170), Anchor.Bottom, Orange, 90, () => { game.Audio?.Click(); game.BeginRun(); });
-        playButton = (RectTransform)playLabel.transform.parent;
-        TextButton(menu, "UPGRADES", new Vector2(-180, 150), new Vector2(330, 120), Anchor.Bottom, Teal, 46, () => Show(shop));
-        TextButton(menu, "SETTINGS", new Vector2(180, 150), new Vector2(330, 120), Anchor.Bottom, Panel, 46, () => Show(settings));
-        if (!Application.isMobilePlatform) Label(menu, "ARROWS / WASD  -  SPACE JUMP  -  S DUCK  -  P PAUSE", 28, new Vector2(0, 70), new Vector2(1000, 50), Anchor.Bottom, new Color(1, 1, 1, .7f));
+        Title(menu, new Vector2(0, -106), Anchor.Top);
+        Art(menu, "UI/pirate-escape", new Vector2(0, -271), Anchor.Top);
+
+        var record = ArtPill(menu, "UI/pill-record", new Vector2(0, -345), 446, 89, Anchor.Top, 54, 54);
+        Art(record, "UI/rekor", new Vector2(-105, 0), Anchor.Center);
+        bestMenu = Label(record, "0", 46, new Vector2(112, 0), new Vector2(220, 70), Anchor.Center, Cream);
+
+        playButton = (RectTransform)ArtButton(menu, "UI/oyna", new Vector2(0, 228), Anchor.Bottom, () => { game.Audio?.Click(); game.BeginRun(); }).transform;
+        ArtButton(menu, "UI/gelistir", new Vector2(-205, 66), Anchor.Bottom, () => Show(shop));
+        ArtButton(menu, "UI/ayarlar", new Vector2(205, 66), Anchor.Bottom, () => Show(settings));
+    }
+
+    void ToggleSound()
+    {
+        bool on = !(RunnerSave.Music || RunnerSave.Sfx);
+        RunnerSave.Music = RunnerSave.Sfx = on; RunnerSave.Save();
+        game.Audio?.Click();
+    }
+
+    // Deep blue from the top of the screen fading into the scene, as in the design.
+    void Sky(GameObject parent)
+    {
+        var deep = new Color(.03f, .16f, .34f);
+        var solid = Box(parent, new Vector2(0, ShadeOverscan), new Vector2(2400, ShadeOverscan + SkySolid), deep, Anchor.Top);
+        solid.GetComponent<Image>().sprite = null; solid.GetComponent<Image>().raycastTarget = false;
+        var fade = Box(parent, new Vector2(0, -SkySolid), new Vector2(2400, SkyFade), deep, Anchor.Top);
+        var image = fade.GetComponent<Image>(); image.sprite = fadeDown; image.type = Image.Type.Simple; image.raycastTarget = false;
+    }
+
+    static Sprite LoadSprite(string path, Vector4 border = default)
+    {
+        var tex = Resources.Load<Texture2D>(path);
+        return tex ? Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(.5f, .5f), 100f, 0, SpriteMeshType.FullRect, border) : null;
+    }
+
+    // Sprites are twice the size of the design, so half a pixel of art is one design pixel.
+    GameObject Art(GameObject parent, string path, Vector2 pos, Anchor anchor)
+    {
+        var sprite = LoadSprite(path);
+        var size = sprite ? new Vector2(sprite.rect.width, sprite.rect.height) * .5f * DesignScale : new Vector2(200, 80);
+        var box = Box(parent, pos, size, Color.white, anchor);
+        var image = box.GetComponent<Image>(); image.sprite = sprite; image.type = Image.Type.Simple; image.raycastTarget = false;
+        return box;
+    }
+
+    GameObject ArtButton(GameObject parent, string path, Vector2 pos, Anchor anchor, Action onClick)
+    {
+        var sprite = LoadSprite(path);
+        var size = sprite ? new Vector2(sprite.rect.width, sprite.rect.height) * .5f * DesignScale : new Vector2(300, 120);
+        var go = ButtonAt(parent, pos, size, anchor, "", Color.white, onClick);
+        var image = go.GetComponent<Image>(); image.sprite = sprite; image.type = Image.Type.Simple; image.color = Color.white;
+        return go;
+    }
+
+    GameObject ArtPill(GameObject parent, string path, Vector2 pos, float width, float height, Anchor anchor, float left, float right)
+    {
+        var box = Box(parent, pos, new Vector2(width, height) * DesignScale, Color.white, anchor);
+        var image = box.GetComponent<Image>();
+        image.sprite = LoadSprite(path, new Vector4(left * 2f, 0, right * 2f, 0)); image.type = Image.Type.Sliced; image.pixelsPerUnitMultiplier = 2f / DesignScale; image.raycastTarget = false;
+        return box;
+    }
+
+    static readonly Color Cream = new(1f, .965f, .88f);
+
+    // The game's title artwork, or plain text if the image is missing.
+    const string TitleImage = "UI/jetski-runner-title";
+    void Title(GameObject parent, Vector2 pos, Anchor anchor)
+    {
+        if (!Resources.Load<Texture2D>(TitleImage)) { Label(parent, "JETSKI RUNNER", 110, pos, new Vector2(1000, 200), anchor); return; }
+        var shadow = Art(parent, TitleImage, pos, anchor).AddComponent<Shadow>();
+        shadow.effectColor = new Color(0, .03f, .07f, .7f); shadow.effectDistance = new Vector2(3f, -4f);
     }
 
     void BuildSettings()
@@ -155,7 +221,7 @@ public sealed class RunnerUI : MonoBehaviour
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = rt.offsetMax = Vector2.zero;
         loading.AddComponent<CanvasGroup>();
         Box(loading, Vector2.zero, new Vector2(2400, 3400), new Color(.02f, .1f, .17f), Anchor.Center).GetComponent<Image>().sprite = null;
-        Label(loading, "JETSKI\nRUNNER", 170, new Vector2(0, 220), new Vector2(1000, 400), Anchor.Center).lineSpacing = .82f;
+        Title(loading, new Vector2(0, 170), Anchor.Center);
         Label(loading, "PIRATE ESCAPE", 50, new Vector2(0, -20), new Vector2(800, 70), Anchor.Center, Gold);
         var track = Box(loading, new Vector2(0, -220), new Vector2(720, 26), new Color(1, 1, 1, .16f), Anchor.Center);
         loadingBar = Box(track, Vector2.zero, new Vector2(720, 26), Gold).GetComponent<Image>();
@@ -282,7 +348,8 @@ public sealed class RunnerUI : MonoBehaviour
 
         if (inMenu)
         {
-            bestMenu.text = "BEST  " + RunnerSave.Best.ToString("N0");
+            bestMenu.text = RunnerSave.Best.ToString("N0");
+            muteSlash.SetActive(!RunnerSave.Music && !RunnerSave.Sfx);
             bankMenu.text = RunnerSave.Bank.ToString("N0");
             playButton.localScale = Vector3.one * (1f + Mathf.Sin(Time.unscaledTime * 3.2f) * .025f);
             musicLabel.text = RunnerSave.Music ? "MUSIC ON" : "MUSIC OFF";
