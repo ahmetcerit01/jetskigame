@@ -150,7 +150,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::JetskiRunnerGame
   environment: 0
   biomeLength: 900
-  biomeBlend: 70
+  biomeBlend: 140
   forwardSpeed: 12
   laneWidth: 2.9
   spawnAhead: 72
@@ -206,6 +206,7 @@ MonoBehaviour:
   - {fileID: 8054506838680295258, guid: f12c3271fc33240a6a8fb651fdb3b878, type: 3}
   - {fileID: 8383624491350726086, guid: a91ee7d03c1754ab6b52105731556bdb, type: 3}
   - {fileID: 7370764036228214094, guid: dd9f55de1416b454faa8c54c822d22b1, type: 3}
+  - {fileID: 6860634352065018363, guid: 23d2d1afb873c4c299816812b8817e4f, type: 3}
   skyShader: {fileID: 4800000, guid: 1d5c9ee08de69d74b992fd2ab34ea3c2, type: 3}
   sprayMaterial: {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
   postFxShader: {fileID: 4800000, guid: 8555615ac658c46c2acedb5a27b91575, type: 3}

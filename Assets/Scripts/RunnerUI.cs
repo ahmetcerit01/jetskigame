@@ -46,12 +46,26 @@ public sealed class RunnerUI : MonoBehaviour
         var scaler = gameObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; scaler.referenceResolution = new Vector2(1080, 1920); scaler.matchWidthOrHeight = .5f;
         gameObject.AddComponent<GraphicRaycaster>();
-        root = (RectTransform)transform;
+        // Everything hangs off the safe area, so nothing sits under the notch or the home bar; the dim panels are oversized and still cover the screen.
+        root = (RectTransform)new GameObject("Safe area", typeof(RectTransform)).transform;
+        root.SetParent(transform, false);
+        ApplySafeArea();
         if (!FindFirstObjectByType<EventSystem>())
         {
             var es = new GameObject("EventSystem"); es.AddComponent<EventSystem>(); es.AddComponent<StandaloneInputModule>();
         }
         BuildHud(); BuildMenu(); BuildShop(); BuildPause(); BuildOver();
+    }
+
+    Rect appliedSafeArea;
+    void ApplySafeArea()
+    {
+        var area = Screen.safeArea;
+        if (area == appliedSafeArea || Screen.width <= 0 || Screen.height <= 0) return;
+        appliedSafeArea = area;
+        var size = new Vector2(Screen.width, Screen.height);
+        root.anchorMin = area.position / size; root.anchorMax = (area.position + area.size) / size;
+        root.offsetMin = root.offsetMax = Vector2.zero;
     }
 
     void BuildHud()
@@ -100,7 +114,7 @@ public sealed class RunnerUI : MonoBehaviour
         TextButton(menu, "UPGRADES", new Vector2(0, 330), new Vector2(620, 130), Anchor.Bottom, Teal, 56, () => Show(shop));
         musicLabel = TextButton(menu, "MUSIC ON", new Vector2(-200, 170), new Vector2(300, 100), Anchor.Bottom, Panel, 38, () => { RunnerSave.Music = !RunnerSave.Music; RunnerSave.Save(); game.Audio?.ApplyToggles(); });
         sfxLabel = TextButton(menu, "SOUND ON", new Vector2(200, 170), new Vector2(300, 100), Anchor.Bottom, Panel, 38, () => { RunnerSave.Sfx = !RunnerSave.Sfx; RunnerSave.Save(); game.Audio?.ApplyToggles(); });
-        Label(menu, "ARROWS / WASD  -  SPACE JUMP  -  S DUCK  -  P PAUSE", 28, new Vector2(0, 70), new Vector2(1000, 50), Anchor.Bottom, new Color(1, 1, 1, .7f));
+        if (!Application.isMobilePlatform) Label(menu, "ARROWS / WASD  -  SPACE JUMP  -  S DUCK  -  P PAUSE", 28, new Vector2(0, 70), new Vector2(1000, 50), Anchor.Bottom, new Color(1, 1, 1, .7f));
     }
 
     void BuildShop()
@@ -162,6 +176,7 @@ public sealed class RunnerUI : MonoBehaviour
     void Update()
     {
         if (!game) return;
+        ApplySafeArea();
         var state = game.State;
         bool inMenu = state == JetskiRunnerGame.RunState.Menu;
         if (!inMenu && (menu.activeSelf || shop.activeSelf)) { menu.SetActive(false); shop.SetActive(false); }

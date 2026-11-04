@@ -8,7 +8,7 @@ Shader "JetskiRunner/TropicalWater"
         _Trough ("Dark patches", Color) = (0.03,0.42,0.68,1)
         _Sky ("Sky reflection", Color) = (0.80,0.89,0.95,1)
         _SunDir ("Glint sun direction (towards sun)", Vector) = (-0.45,0.55,1,0)
-        _Speed ("Wave speed", Float) = 1
+        _WavePhase ("Wave phase", Float) = 0
     }
     SubShader
     {
@@ -24,7 +24,7 @@ Shader "JetskiRunner/TropicalWater"
             fixed4 _Shallow, _Deep, _Far, _Trough, _Sky;
             float4 _SunDir;
             float4 _SkyTop, _SunColor, _PlayerPos;
-            float _Speed, _PlayerX, _Scroll, _Foam;
+            float _WavePhase, _PlayerX, _Scroll, _Foam;
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
             struct appdata { float4 vertex : POSITION; };
@@ -62,7 +62,7 @@ Shader "JetskiRunner/TropicalWater"
             {
                 v2f o;
                 float3 world = mul(unity_ObjectToWorld, v.vertex).xyz;
-                world.y += Waves(Flow(world), _Time.y * _Speed).x;
+                world.y += Waves(Flow(world), _WavePhase).x;
                 o.world = world;
                 o.position = UnityWorldToClipPos(world);
                 UNITY_TRANSFER_FOG(o, o.position);
@@ -73,7 +73,7 @@ Shader "JetskiRunner/TropicalWater"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                float t = _Time.y * _Speed;
+                float t = _WavePhase;
                 float2 q = Flow(i.world);
                 float3 waves = Waves(q, t);
                 // fine ripples from scrolling noise

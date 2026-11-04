@@ -11,7 +11,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     [SerializeField] EnvironmentPreset environment = EnvironmentPreset.TropicalRun;
     [Header("Biome cycle")]
     [SerializeField] float biomeLength = 900f;
-    [SerializeField] float biomeBlend = 70f;
+    [SerializeField] float biomeBlend = 140f;
     [Header("Run")]
     [SerializeField] float forwardSpeed = 12f;
     [SerializeField] float laneWidth = 2.3f;
@@ -82,10 +82,20 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     PirateRider rider;
     Vector2 touchStart;
     // Subway-Surfers-style ramp: quick early gains that ease off towards maxSpeed.
-    float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance)));
+    // and every biome crossed adds more on top, easing in just past the border, up to TopSpeed.
+    const float TopSpeed = 48f, SpeedPerBiome = 2.6f;
+    float BiomeSpeedBonus
+    {
+        get
+        {
+            float biomes = Mathf.Max(0f, distanceTravelled) / biomeLength, whole = Mathf.Floor(biomes);
+            return Mathf.Min(TopSpeed - Mathf.Max(maxSpeed, forwardSpeed), SpeedPerBiome * (whole + Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, .12f, biomes - whole))));
+        }
+    }
+    float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance))) + BiomeSpeedBonus;
     // 0 at the start speed, 1 at max speed; scales spacing, steering and jump timing.
     float SpeedProgress => Mathf.InverseLerp(forwardSpeed, Mathf.Max(maxSpeed, forwardSpeed + .01f), RunSpeed);
-    float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f) * (stumbleSlow > 0 ? .78f : 1f);
+    float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f) * Mathf.Lerp(1f, StumbleSpeed, stumbleBlend);
     float JumpOffset => jumpTime < 0 ? 0f : 4f * activeJumpHeight * jumpTime * (1f - jumpTime);
     public float Speed => CurrentSpeed;
     public bool Airborne => jumpTime >= 0;
@@ -209,7 +219,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         var result = Atmosphere.Lerp(from, to, t);
         // a thicker haze right at the border hides far scenery popping between biomes
         float gate = 1f - Mathf.Abs(t * 2f - 1f);
-        result.fogEnd *= 1f - .45f * gate;
+        result.fogEnd *= 1f - .3f * gate;
         return result;
     }
 
@@ -289,7 +299,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         {
             waterSurfaceMaterial.SetColor("_Shallow", a.waterShallow); waterSurfaceMaterial.SetColor("_Deep", a.waterDeep);
             waterSurfaceMaterial.SetColor("_Far", a.waterFar); waterSurfaceMaterial.SetColor("_Trough", a.waterTrough);
-            waterSurfaceMaterial.SetColor("_Sky", Color.Lerp(a.waterSky, Color.white, flash * .5f)); waterSurfaceMaterial.SetFloat("_Speed", a.waveSpeed);
+            waterSurfaceMaterial.SetColor("_Sky", Color.Lerp(a.waterSky, Color.white, flash * .5f));
         }
         var sunGlowColor = (Color)(a.sunColor * a.sunGlow);
         if (skyMaterial) { skyMaterial.SetVector("_SunDir", GlintSunDir); skyMaterial.SetColor("_SunColor", sunGlowColor); }
@@ -303,11 +313,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if (postFx)
         {
             postFx.Bloom = a.bloom; postFx.Saturation = a.saturation; postFx.Contrast = a.contrast; postFx.Vignette = a.vignette; postFx.Tint = a.gradeTint;
-            postFx.Radial = Mathf.Lerp(0f, .012f, SpeedProgress) + (boostLeft > 0 ? .03f : 0f);
+            postFx.Radial = Mathf.Lerp(.004f, .02f, Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed)) + (boostLeft > 0 ? .03f : 0f);
         }
         UpdateReflection(a);
         scenery?.SetAtmosphere(a.mountain, a.cloud, a.volcano);
-        if (rain) { var e = rain.emission; e.rateOverTime = 1400f * a.rain; }
+        if (rain) { var e = rain.emission; e.rateOverTime = RainRate * a.rain; }
         if (embers) { var e = embers.emission; e.rateOverTime = 70f * a.embers; }
 
         var biome = CurrentBiome;
@@ -331,6 +341,62 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         CreateCoinRow(1, 25f, 4);
         CreateCoinRow(0, 54f, 3);
         SetupExtras();
+        StartCoroutine(Prewarm());
+    }
+
+    // A model's first draw makes the GPU prepare its mesh, textures and pipeline state: 30-50 ms on a phone, mid-run.
+    // So everything the run can show is drawn once behind a black cover, on the very first frame after launch.
+    const float StumbleSpeed=.68f, ScreenForward=4.2f, ScreenStumble=2.2f, ScreenBoost=.7f;
+    float wavePhase, screenZ;
+
+    static bool prewarmed;
+    System.Collections.IEnumerator Prewarm()
+    {
+        if(prewarmed) yield break;
+        prewarmed=true;
+        var cover=new GameObject("Loading cover",typeof(Canvas),typeof(UnityEngine.UI.Image));
+        var canvas=cover.GetComponent<Canvas>(); canvas.renderMode=RenderMode.ScreenSpaceOverlay; canvas.sortingOrder=1000;
+        cover.GetComponent<UnityEngine.UI.Image>().color=Color.black;
+
+        // Hazards build their parts and materials in code, so one of each is built out of sight and removed afterwards.
+        int firstChild=movingWorld.childCount, firstSpawned=spawned.Count;
+        const float Away=-200f;
+        CreateObstacleRow(0,Away); CreateCoinRow(0,Away,1); CreateFuelPickup(0,Away); CreatePowerUp(0,Away);
+        CreateLogRow(0,Away,false); CreateLogRow(0,Away,true); CreateBannerRow(0,Away,false); CreateBannerRow(0,Away,true);
+        CreateLavaRock(0,Away); CreateLightning(0,Away); CreateIceFloe(0,Away);
+        if(rampPrefab) CreateRampRow(0,Away);
+        if(pirateShipPrefab) SpawnShip(0,Away,0f);
+
+        var sources=new List<GameObject>{pirateShipPrefab,iceTunnelPrefab,goldPrefab,rampPrefab,fuelPrefab,sideRockPrefab,dockBarrelPrefab,riderPrefab};
+        if(obstaclePrefabs!=null) sources.AddRange(obstaclePrefabs);
+        if(shoreModels!=null) sources.AddRange(shoreModels);
+        if(scenery!=null) sources.AddRange(scenery.AllTemplates);
+        for(int i=firstChild;i<movingWorld.childCount;i++) sources.Add(movingWorld.GetChild(i).gameObject);
+
+        var at=Matrix4x4.Translate(gameCamera.transform.position+gameCamera.transform.forward*15f);
+        var drawn=new HashSet<(Mesh,Material)>();
+        foreach(var source in sources)
+        {
+            if(!source) continue;
+            foreach(var r in source.GetComponentsInChildren<Renderer>(true))
+            {
+                var mesh=r is SkinnedMeshRenderer skinned?skinned.sharedMesh:r.TryGetComponent<MeshFilter>(out var filter)?filter.sharedMesh:null;
+                if(!mesh) continue;
+                var materials=r.sharedMaterials;
+                for(int m=0;m<materials.Length&&m<mesh.subMeshCount;m++)
+                    if(materials[m]&&drawn.Add((mesh,materials[m])))
+                        Graphics.DrawMesh(mesh,at,materials[m],gameObject.layer,gameCamera,m,null,r.shadowCastingMode,true);
+            }
+        }
+        var effects=FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None);
+        foreach(var effect in effects) effect.Emit(1);
+
+        yield return null;
+
+        foreach(var effect in effects) if(effect) effect.Clear();
+        for(int i=movingWorld.childCount-1;i>=firstChild;i--) Destroy(movingWorld.GetChild(i).gameObject);
+        spawned.RemoveRange(firstSpawned,spawned.Count-firstSpawned);
+        Destroy(cover);
     }
 
     // Main menu: the jetski idles on the water behind the menu while the scenery keeps its atmosphere.
@@ -347,6 +413,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
 
     void Update()
     {
+        // Waves run on an accumulated phase: multiplying time by a changing speed made the sea jump through a biome change.
+        wavePhase += atmosphere.waveSpeed * Time.deltaTime;
+        if (waterSurfaceMaterial) waterSurfaceMaterial.SetFloat("_WavePhase", wavePhase);
         if (state == RunState.Menu) { UpdateMenu(); return; }
         if (crashed)
         {
@@ -375,9 +444,14 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         // steering gets snappier as the run speeds up so lane changes keep pace with the traffic
         var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
         position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f) - (Ducking ? .16f : 0f);
+        // At speed the jetski pushes up the screen; a stumble knocks it back down, and it climbs again as it recovers.
+        float screenTarget = ScreenForward * Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed) - ScreenStumble * stumbleBlend + (boostLeft > 0 ? ScreenBoost : 0f);
+        screenZ = Mathf.Lerp(screenZ, screenTarget, 1f - Mathf.Exp(-(screenTarget < screenZ ? 6f : 1.1f) * Time.deltaTime));
+        position.z = screenZ;
         player.position = position;
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX",player.position.x); waterSurfaceMaterial.SetFloat("_Scroll",distanceTravelled); waterSurfaceMaterial.SetVector("_PlayerPos",new Vector4(player.position.x,JumpOffset,player.position.z,0)); }
         float pitch = jumpTime < 0 ? (Ducking ? 5f : 0f) : Mathf.Lerp(-14f, 10f, jumpTime);
+        pitch += stumbleBlend * Mathf.Sin(Time.time * 19f) * 7f;
         player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(pitch, 0, Mathf.Clamp((desired.x-player.position.x)*-12f,-13f,13f)), Time.deltaTime*7f);
         movingWorld.position += Vector3.back * (speed * Time.deltaTime);
         // wake spray grows with speed and boost, and stops while the hull is out of the water
@@ -400,32 +474,40 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         // look further ahead at speed so rows still appear ~5 s out instead of popping in close
         while (nextRowAt < distanceTravelled + Mathf.Max(spawnAhead, RunSpeed * 5f))
         {
-            int pattern = Random.Range(0, 13);
-            int selected = Random.Range(0, 3);
-            bool hazards = nextRowAt > 60f && obstaclePrefabs != null && obstaclePrefabs.Length > 0;
+            int pattern = Random.Range(0, 20);
+            int selected = NextFreeLane(nextRowAt);
+            int rowFirst = spawned.Count;
+            bool busy = TrafficLane(nextRowAt) >= 0;
+            bool hazards = nextRowAt > FirstHazardAt && obstaclePrefabs != null && obstaclePrefabs.Length > 0;
             float rowLength = 0f;
-            if (pattern == 0) CreateCoinRow(selected, nextRowAt, Random.Range(3, 5));
-            else if (pattern == 1) CreateZigzagRow(selected, nextRowAt);
-            else if (hazards && pattern <= 4) CreateObstacleRow(selected, nextRowAt);
-            else if (hazards && pattern <= 6 && pirateShipPrefab && Random.value < ShipChance(BiomeAt(nextRowAt))) { CreateShipRow(selected, nextRowAt); rowLength = shipLength * 2f; }
-            else if (hazards && pattern <= 6) CreateObstacleRow(selected, nextRowAt);
-            else if (hazards && pattern == 7 && rampPrefab) CreateRampRow(selected, nextRowAt);
-            else if (pattern == 8 && fuelPrefab) CreateFuelPickup(selected, nextRowAt);
-            else if (hazards && pattern == 9) CreateLogRow(selected, nextRowAt, nextRowAt > 260f && Random.value < .4f);
-            else if (hazards && pattern == 10) CreateBannerRow(selected, nextRowAt, nextRowAt > 320f && Random.value < .35f);
-            else if (hazards && pattern == 11) CreateBiomeHazardRow(selected, nextRowAt);
-            else if (pattern == 12 && nextRowAt > 150f) CreatePowerUp(selected, nextRowAt);
-            else CreateCoinRow(selected, nextRowAt, Random.Range(1, 3));
+            if (!hazards) CreateCoinRow(selected, nextRowAt, Random.Range(3, 5));
+            else if (pattern <= 5) CreateObstacleRow(selected, nextRowAt);
+            else if (pattern <= 8 && pirateShipPrefab && Random.value < ShipChance(BiomeAt(nextRowAt))) { CreateShipRow(selected, nextRowAt); rowLength = shipLength; }
+            else if (pattern <= 12) CreateObstacleRow(selected, nextRowAt);
+            else if (pattern == 13 && rampPrefab) CreateRampRow(selected, nextRowAt);
+            else if (pattern == 14) CreateLogRow(selected, nextRowAt, !busy && nextRowAt > 260f && Random.value < .4f);
+            else if (pattern == 15) CreateBannerRow(selected, nextRowAt, !busy && nextRowAt > 320f && Random.value < .35f);
+            else if (pattern == 16) CreateBiomeHazardRow(selected, nextRowAt);
+            else if (pattern == 17 && nextRowAt > 150f) { CreatePowerUp(selected, nextRowAt - 6f); CreateObstacleRow(selected, nextRowAt); }
+            else if (pattern == 18 && fuelPrefab) { CreateFuelPickup(selected, nextRowAt - 6f); CreateObstacleRow(selected, nextRowAt); }
+            else if (pattern == 19) CreateZigzagRow(selected, nextRowAt);
+            else CreateObstacleRow(selected, nextRowAt);
             // rows spread out in metres as speed grows, but less than speed does, so they still arrive faster
-            nextRowAt += rowLength + Random.Range(16f, 24f) * Mathf.Lerp(1f, 1.6f, SpeedProgress);
+            // and they breathe: stretches of rush and calm instead of one even rhythm, never too tight to react to
+            ClearTrafficLane(nextRowAt, rowFirst);
+            if (hazards) SpawnTraffic(nextRowAt);
+            float gap = rowLength + Mathf.Max(Random.Range(13f, 19f) * Mathf.Lerp(1f, 1.35f, SpeedProgress) * GapRhythm(nextRowAt), RunSpeed * MinRowSeconds);
+            // a coin trail along the open lane fills the stretch up to the next row
+            if (hazards && Random.value < .8f) CreateCoinRow(selected, nextRowAt + TrailStart, Mathf.FloorToInt((gap - TrailStart) / 3.6f));
+            nextRowAt += gap;
         }
     }
 
     // Pirate traffic is heaviest around the harbor and in the storm, rare in the volcanic zone.
     static float ShipChance(EnvironmentPreset biome) => biome switch
     {
-        EnvironmentPreset.PirateCove => 1f, EnvironmentPreset.Storm => 1f, EnvironmentPreset.IceCave => .6f,
-        EnvironmentPreset.Volcanic => .3f, _ => .45f,
+        EnvironmentPreset.PirateCove => 1f, EnvironmentPreset.Storm => 1f, EnvironmentPreset.IceCave => .8f,
+        EnvironmentPreset.Volcanic => .6f, _ => .85f,
     };
 
     bool RestartPressed() =>
@@ -637,7 +719,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         // depth powers the water's contact foam and the soft particles
         gameCamera.depthTextureMode|=DepthTextureMode.Depth;
         // post-processing costs too much on the low quality tiers
-        if(QualitySettings.GetQualityLevel()>=3) postFx=RunnerPostFX.Attach(gameCamera,postFxShader?postFxShader:Shader.Find("JetskiRunner/PostFX"));
+        // lower settings skip bloom and grading but keep the faint blur at the screen edges
+        postFx=RunnerPostFX.Attach(gameCamera,postFxShader?postFxShader:Shader.Find("JetskiRunner/PostFX"),QualitySettings.GetQualityLevel()<3);
         var skyShaderToUse=skyShader?skyShader:Shader.Find("JetskiRunner/SkyGradient");
         if(skyShaderToUse)
         {
@@ -830,7 +913,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     void CreateWeather()
     {
         if(!sprayMaterial) return;
-        rain=MakeWeather("Storm rain",new Vector3(0,9,12),new Vector3(22,1,30),new Color(.78f,.84f,.94f,.8f),.07f,.12f,new Vector3(-1.5f,-24,-8),true);
+        rain=MakeWeather("Storm rain",new Vector3(0,9,12),new Vector3(22,1,30),new Color(.78f,.84f,.94f,.8f),.07f,.12f,new Vector3(-1f,-15f,-5f),true);
         embers=MakeWeather("Volcanic embers",new Vector3(0,-.5f,18),new Vector3(30,1,40),new Color(1f,.48f,.12f,.95f),.08f,.16f,new Vector3(0,2.4f,-3),false);
     }
     ParticleSystem MakeWeather(string name,Vector3 local,Vector3 box,Color color,float minSize,float maxSize,Vector3 velocity,bool streaks)
@@ -840,16 +923,16 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         var ps=go.AddComponent<ParticleSystem>();
         ps.Stop(true,ParticleSystemStopBehavior.StopEmittingAndClear);
         var main=ps.main;
-        main.startLifetime=streaks?new ParticleSystem.MinMaxCurve(.5f,.8f):new ParticleSystem.MinMaxCurve(2.5f,4f);
+        main.startLifetime=streaks?new ParticleSystem.MinMaxCurve(.75f,1.1f):new ParticleSystem.MinMaxCurve(2.5f,4f);
         main.startSpeed=0; main.startSize=new ParticleSystem.MinMaxCurve(minSize,maxSize); main.startColor=color;
-        main.simulationSpace=ParticleSystemSimulationSpace.World; main.maxParticles=streaks?2500:400;
+        main.simulationSpace=ParticleSystemSimulationSpace.World; main.maxParticles=streaks?1100:400;
         var emission=ps.emission; emission.rateOverTime=0;
         var shape=ps.shape; shape.shapeType=ParticleSystemShapeType.Box; shape.scale=box;
         var vel=ps.velocityOverLifetime; vel.enabled=true; vel.space=ParticleSystemSimulationSpace.World;
         vel.x=new ParticleSystem.MinMaxCurve(velocity.x,velocity.x); vel.y=new ParticleSystem.MinMaxCurve(velocity.y*.8f,velocity.y); vel.z=new ParticleSystem.MinMaxCurve(velocity.z,velocity.z); // all TwoConstants: mixed modes are rejected
         if(!streaks){ var noise=ps.noise; noise.enabled=true; noise.strength=.8f; noise.frequency=.4f; }
         var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=sprayMaterial;
-        if(streaks){ renderer.renderMode=ParticleSystemRenderMode.Stretch; renderer.velocityScale=.07f; renderer.lengthScale=2f; }
+        if(streaks){ renderer.renderMode=ParticleSystemRenderMode.Stretch; renderer.velocityScale=.1f; renderer.lengthScale=2f; }
         ps.Play();
         return ps;
     }
@@ -863,7 +946,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         SpawnCaveUpTo(ShoreAhead);
     }
 
-    const float ShoreAhead=190f;
+    const float ShoreAhead=190f, RainRate=650f;
 
     // Historic castles alternate along the coast of every open-water biome except the volcano, swapping sides as they go.
     // clearBefore/clearAfter: shore-free stretch on that side, so palms do not hide the castle on the approach.
@@ -964,37 +1047,112 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
 
     // Pirate ships work like lane-blocking traffic: some lie at anchor, others sail head-on down a lane.
+    const float MinRowSeconds=.62f, RhythmLength=260f, RhythmDepth=.12f, DodgeSeconds=.55f, FirstHazardAt=40f, TrailStart=8f;
+
+    // The open lane drifts at most one lane per row, so one swipe is always enough to stay on the way through.
+    int freeLane=1;
+    int NextFreeLane(float z)
+    {
+        freeLane=Mathf.Clamp(freeLane+Random.Range(-1,2),0,2);
+        if(freeLane==TrafficLane(z)) freeLane=1;
+        return freeLane;
+    }
+    static float GapRhythm(float z)=>1f+RhythmDepth*Mathf.Sin(z*Mathf.PI*2f/RhythmLength);
+
+    // Traffic: for most of each stretch one outer lane belongs to ships sailing head-on, at speeds the player has to read.
+    // Rows stay out of that lane and the open lane stays out of it too, so there is always a way through.
+    const float TrafficStretch=180f, TrafficFrom=120f, SailGapMin=45f, SailGapMax=90f;
+    const int TrafficRestEvery=4;
+    static readonly float[] SailTiers={.7f,1.25f,1.85f};
+    float nextSailAt;
+    RunnerTrigger lastSail;
+    public int ShipsSailed { get; private set; }
+
+    int TrafficLane(float z)
+    {
+        int stretch=Mathf.FloorToInt(z/TrafficStretch);
+        if(z<TrafficFrom||stretch%TrafficRestEvery==TrafficRestEvery-1) return -1;
+        return stretch%2==0?0:2;
+    }
+
+    void SpawnTraffic(float z)
+    {
+        int lane=TrafficLane(z);
+        if(lane<0||z<nextSailAt||!pirateShipPrefab||Random.value>=ShipChance(BiomeAt(z))) return;
+        nextSailAt=z+Random.Range(SailGapMin,SailGapMax);
+        float v=Mathf.Max(1f,RunSpeed), stretchStart=Mathf.Floor(z/TrafficStretch)*TrafficStretch;
+        var skiff=scenery!=null?scenery.Model(SkiffModel):null;
+        bool small=skiff&&Random.value<SkiffChance;
+        float sail=shipSailSpeed*(small?SkiffSail:SailTiers[Random.Range(0,SailTiers.Length)]);
+        // Must not catch the ship ahead before that one has passed the player...
+        if(lastSail)
+        {
+            float ahead=lastSail.transform.localPosition.z, closing=sail-lastSail.SailSpeed;
+            if(closing>0f&&(z-ahead)/closing<(ahead-distanceTravelled)/(v+lastSail.SailSpeed)) sail=lastSail.SailSpeed;
+        }
+        // ...nor sail out of its stretch into a lane that rows were allowed to use, before it meets the player.
+        float room=z-Mathf.Max(stretchStart,distanceTravelled)-shipLength, span=Mathf.Max(1f,z-distanceTravelled);
+        sail=Mathf.Min(sail,room*v/Mathf.Max(1f,span-room));
+        if(sail<shipSailSpeed*SailTiers[0]*.5f) return;
+        lastSail=(small?SpawnSkiff(skiff,lane,z,sail):SpawnShip(lane,z,sail)).GetComponent<RunnerTrigger>();
+        ShipsSailed++;
+    }
+
+    // A small fast skiff: light enough to stumble on rather than crash, to jump, or to smash with a boost.
+    const string SkiffModel="37-pirate-skiff";
+    const float SkiffChance=.45f, SkiffSail=2.6f, SkiffScale=2.2f, SkiffYaw=90f, SkiffDraft=.6f;
+    GameObject SpawnSkiff(GameObject prefab,int laneIndex,float z,float sail)
+    {
+        var boat=SpawnAsset(prefab,laneIndex,z,TriggerKind.Ship);
+        boat.name="Pirate skiff | sailing head-on";
+        boat.transform.localScale=Vector3.one*SkiffScale;
+        var trigger=boat.GetComponent<RunnerTrigger>();
+        trigger.Light=true; trigger.Yaw=SkiffYaw; trigger.SailSpeed=sail; trigger.Draft=SkiffDraft;
+        boat.transform.localRotation=Quaternion.Euler(0,SkiffYaw,0);
+        return boat;
+    }
+
+    // Removes what a row placed in the traffic lane (coins may stay: a ship simply sails through them).
+    void ClearTrafficLane(float z,int firstSpawned)
+    {
+        int lane=TrafficLane(z);
+        if(lane<0) return;
+        float x=(lane-1)*laneWidth;
+        for(int i=spawned.Count-1;i>=firstSpawned;i--)
+        {
+            var go=spawned[i];
+            if(!go||!go.TryGetComponent<RunnerTrigger>(out var t)||t.Kind==TriggerKind.Coin) continue;
+            if(Mathf.Abs(go.transform.localPosition.x-x)>=laneWidth*.5f) continue;
+            Destroy(go); spawned.RemoveAt(i);
+        }
+    }
+
     void CreateShipRow(int freeLane,float z)
     {
-        int movingLane=distanceTravelled>120f && Random.value<.55f ? (freeLane+Random.Range(1,3))%3 : -1;
-        // A sailing ship sweeps its lane all the way to the player. It used to delete whatever was
-        // in the way, which made obstacles and coins vanish in plain sight; now it only sails into a clear lane.
-        if(movingLane>=0 && !LaneClear(movingLane,z+25f+shipLength)) movingLane=(movingLane==(freeLane+1)%3?(freeLane+2)%3:(freeLane+1)%3);
-        if(movingLane>=0 && !LaneClear(movingLane,z+25f+shipLength)) movingLane=-1;
         for(int laneIndex=0;laneIndex<3;laneIndex++)
         {
             if(laneIndex==freeLane) continue;
-            if(laneIndex==movingLane){ SpawnShip(laneIndex,z+Random.Range(10f,25f),true); continue; }
             if(Random.value<.35f) continue;
             int convoy=Random.value<.4f?2:1;
-            for(int i=0;i<convoy;i++) SpawnShip(laneIndex,z+i*shipLength,false);
+            for(int i=0;i<convoy;i++) SpawnShip(laneIndex,z+i*shipLength,0f);
         }
         CreateCoinRow(freeLane,z-2f,4);
     }
 
-    // True when nothing (pickup, obstacle, ramp or ship) sits in the lane between the player and 'untilZ'.
+    // True when nothing but coins (obstacle, pickup, ramp or ship) sits in the lane between the player and 'untilZ'.
     bool LaneClear(int laneIndex,float untilZ)
     {
         float x=(laneIndex-1)*laneWidth;
         foreach(var go in spawned)
-            if(go && go.GetComponent<RunnerTrigger>() && Mathf.Abs(go.transform.localPosition.x-x)<laneWidth*.5f
+            if(go && go.TryGetComponent<RunnerTrigger>(out var t) && t.Kind!=TriggerKind.Coin && Mathf.Abs(go.transform.localPosition.x-x)<laneWidth*.5f
                && go.transform.position.z>-2f && go.transform.localPosition.z<untilZ)
                 return false;
         return true;
     }
 
-    void SpawnShip(int laneIndex,float z,bool sailing)
+    GameObject SpawnShip(int laneIndex,float z,float sail)
     {
+        bool sailing=sail>0f;
         var ship=SpawnAsset(pirateShipPrefab,laneIndex,z,TriggerKind.Ship);
         ship.name=sailing?"Pirate ship | sailing head-on":"Pirate ship | at anchor";
         // The prefab's bow points +Z; every ship turns its bow to the player (anchored ones used to be
@@ -1002,7 +1160,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         var trigger=ship.GetComponent<RunnerTrigger>();
         trigger.Yaw=180f+(sailing?0f:Random.Range(-8f,8f));
         ship.transform.localRotation=Quaternion.Euler(0,trigger.Yaw,0);
-        trigger.SailSpeed=sailing?shipSailSpeed:0f;
+        trigger.SailSpeed=sail;
+        return ship;
     }
 
     void CreateCoinRow(int laneIndex,float z,int count)
@@ -1042,11 +1201,35 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     void CreateZigzagRow(int start,float z)
     { for(int i=0;i<5;i++) CreateCoinRow((start+i)%3,z+i*1.8f,1); }
 
+    // Ships fill their lane without touching a neighbour; other hazards are sized to read as a real block in theirs.
+    const float ShipLaneFill=.9f, ObstacleLaneFill=.72f, MaxObstacleGrowth=2.2f;
+    readonly Dictionary<GameObject,float> laneFit=new();
+    void FitToLane(GameObject prefab,GameObject go)
+    {
+        if(!laneFit.TryGetValue(prefab,out float fit))
+        {
+            var renderers=go.GetComponentsInChildren<Renderer>();
+            fit=1f;
+            if(renderers.Length>0)
+            {
+                var b=renderers[0].bounds;
+                foreach(var r in renderers) b.Encapsulate(r.bounds);
+                bool ship=prefab==pirateShipPrefab;
+                fit=laneWidth*(ship?ShipLaneFill:ObstacleLaneFill)/Mathf.Max(.01f,b.size.x);
+                fit=Mathf.Min(fit,ship?1f:MaxObstacleGrowth);
+                if(ship) shipLength=b.size.z*fit;
+            }
+            laneFit[prefab]=fit;
+        }
+        go.transform.localScale*=fit;
+    }
+
     GameObject SpawnAsset(GameObject prefab,int laneIndex,float z,TriggerKind kind)
     {
         var go=Instantiate(prefab,movingWorld);
         go.transform.localPosition=new Vector3((laneIndex-1)*laneWidth,WaterY,z);
         go.transform.localRotation=Quaternion.identity;
+        if(kind>=TriggerKind.Obstacle) FitToLane(prefab,go);
         AddBoundsTrigger(go,kind>=TriggerKind.Obstacle ? .75f : 1f);
         go.AddComponent<RunnerTrigger>().Init(this,kind);
         spawned.Add(go);
@@ -1070,9 +1253,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     {
         for(int laneIndex=0;laneIndex<3;laneIndex++)
         {
-            if(laneIndex==freeLane || Random.value<.35f) continue;
+            if(laneIndex==freeLane || Random.value<.12f) continue;
             var prefab=obstaclePrefabs[Random.Range(0,obstaclePrefabs.Length)];
-            SpawnAsset(prefab,laneIndex,z+Random.Range(-1.5f,1.5f),TriggerKind.Obstacle).transform.localRotation=Quaternion.Euler(0,Random.Range(-20f,20f),0);
+            var hazard=SpawnAsset(prefab,laneIndex,z+Random.Range(-1.5f,1.5f),TriggerKind.Obstacle);
+            hazard.transform.localRotation=Quaternion.Euler(0,Random.Range(-20f,20f),0);
+            hazard.GetComponent<RunnerTrigger>().Light=prefab.name.IndexOf("barrel",System.StringComparison.OrdinalIgnoreCase)>=0;
         }
         CreateCoinRow(freeLane,z-3f,3);
     }
@@ -1160,7 +1345,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 if(AbsorbHit(trigger)) return;
                 Crash();
                 break;
-            case TriggerKind.Ship:                     // too big to jump or smash: change lanes
+            case TriggerKind.Ship:                     // too big to jump or smash, unless it is a light skiff: change lanes
+                if(trigger.Light&&JumpOffset>.7f) return;
+                if(trigger.Light&&boostLeft>0){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; }
                 if(AbsorbHit(trigger) || TryStumble(trigger)) return;
                 Crash();
                 break;
@@ -1176,6 +1363,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         public TriggerKind Kind { get; private set; }
         public void Init(JetskiRunnerGame owner,TriggerKind kind){ game=owner; Kind=kind; }
         public float SailSpeed { get; set; }
+        public float Draft { get; set; }    // how deep a hull with a rounded keel sits in the water
         // Stored heading: reading it back from localEulerAngles after adding roll/pitch can flip it.
         public float Yaw { get; set; }
         Vector3 knockVelocity, knockSpin;
@@ -1215,7 +1403,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             {
                 var p=transform.localPosition;
                 p.z-=SailSpeed*Time.deltaTime;
-                p.y=WaterY+Mathf.Sin(Time.time*1.3f+p.z)*.12f;
+                p.y=WaterY-Draft+Mathf.Sin(Time.time*1.3f+p.z)*.12f;
                 transform.localPosition=p;
                 transform.localRotation=Quaternion.Euler(Mathf.Sin(Time.time*1.1f+p.z)*1.5f,Yaw,Mathf.Sin(Time.time*.9f+p.x)*2.5f);
             }

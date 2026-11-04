@@ -11,17 +11,26 @@ public sealed class RunnerPostFX : MonoBehaviour
     const int Levels = 5;
     readonly RenderTexture[] chain = new RenderTexture[Levels];
 
-    public static RunnerPostFX Attach(Camera cam, Shader shader)
+    bool edgeOnly;
+
+    public static RunnerPostFX Attach(Camera cam, Shader shader, bool edgeOnly = false)
     {
         if (!shader || !shader.isSupported) return null;
         var fx = cam.gameObject.AddComponent<RunnerPostFX>();
         fx.material = new Material(shader) { hideFlags = HideFlags.DontSave };
-        cam.allowHDR = true;
+        fx.edgeOnly = edgeOnly;
+        if (!edgeOnly) cam.allowHDR = true;
         return fx;
     }
 
     void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
+        if (edgeOnly)
+        {
+            material.SetFloat("_Radial", Radial);
+            Graphics.Blit(source, destination, material, 4);
+            return;
+        }
         int w = source.width / 2, h = source.height / 2;
         var format = source.format;
         material.SetFloat("_Threshold", 1.05f);

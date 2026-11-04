@@ -64,6 +64,14 @@ Shader "JetskiRunner/PostFX"
     #endif
         return float4(c, 1);
     }
+    // Faint blur at the screen edges only, for settings that skip the rest of the chain.
+    float4 EdgeBlur(v2f i) : SV_Target
+    {
+        float2 toC = i.uv - float2(.5, .58);
+        float3 c = tex2D(_MainTex, i.uv).rgb, sum = c;
+        for (int k = 1; k < 4; k++) sum += tex2D(_MainTex, i.uv - toC * _Radial * k / 3).rgb;
+        return float4(lerp(c, sum / 4, saturate(dot(toC, toC) * 7)), 1);
+    }
     ENDCG
     SubShader
     {
@@ -83,6 +91,10 @@ Shader "JetskiRunner/PostFX"
         Pass { CGPROGRAM
             #pragma vertex vert
             #pragma fragment Composite
+        ENDCG }
+        Pass { CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment EdgeBlur
         ENDCG }
     }
 }

@@ -50,7 +50,7 @@ public sealed partial class JetskiRunnerGame
     float BoostTime => boostDuration + .7f * RunnerSave.Level(RunnerSave.Upgrade.Boost);
 
     // ---------- duck / chaser ----------
-    float duckLeft, stumbleSlow, chaseLeft, introChase;
+    float duckLeft, stumbleSlow, stumbleBlend, chaseLeft, introChase;
     bool duckAfterLanding;
     int prevLane = 1;
     Transform chaser;
@@ -107,7 +107,7 @@ public sealed partial class JetskiRunnerGame
         RunnerSave.Bank -= ReviveCost; RunnerSave.Save();
         revives++;
         crashed = false; caught = false; state = RunState.Running;
-        jumpTime = -1f; duckLeft = 0; chaseLeft = 0; stumbleSlow = 0;
+        jumpTime = -1f; duckLeft = 0; chaseLeft = 0; stumbleSlow = 0; stumbleBlend = 0;
         graceLeft = 2.5f;
         if (rider) rider.Revive();
         // clear the water ahead so the continue is not an instant second crash
@@ -143,6 +143,7 @@ public sealed partial class JetskiRunnerGame
         doubleLeft = Mathf.Max(0, doubleLeft - dt);
         graceLeft = Mathf.Max(0, graceLeft - dt);
         stumbleSlow = Mathf.Max(0, stumbleSlow - dt);
+        stumbleBlend = Mathf.MoveTowards(stumbleBlend, stumbleSlow > 0 ? 1f : 0f, dt * (stumbleSlow > 0 ? 7f : 1.1f));
         chaseLeft = Mathf.Max(0, chaseLeft - dt);
         introChase = Mathf.Max(0, introChase - dt);
         duckLeft = Mathf.Max(0, duckLeft - dt);
@@ -193,20 +194,23 @@ public sealed partial class JetskiRunnerGame
 
     // ---------- hazards ----------
 
-    // Side-swipe while changing lanes: bounce back and get chased instead of crashing; twice in a row = caught.
+    // Side-swipe while changing lanes, or running into something light like a barrel: stumble and get chased
+    // instead of crashing; twice in a row = caught.
     bool TryStumble(RunnerTrigger t)
     {
         if (t.Wide) return false;
         float lateral = Mathf.Abs(player.position.x - t.transform.position.x);
         bool changing = Mathf.Abs(player.position.x - (lane - 1) * laneWidth) > .3f;
-        if (!changing || lateral < laneWidth * .4f) return false;
+        bool glancing = changing && lateral >= laneWidth * .4f;
+        if (!glancing && !t.Light) return false;
+        if (t.Light) t.Knock(player.position.x);
         audioFx?.Stumble();
         cameraKick = Mathf.Max(cameraKick, .3f);
         ImpactSplash(player.position, .5f);
         if (rider) rider.Hit();
-        lane = prevLane;
+        if (glancing) lane = prevLane;
         if (chaseLeft > 0) { caught = true; Crash(); return true; }
-        chaseLeft = 9f; stumbleSlow = .9f;
+        chaseLeft = 9f; stumbleSlow = 1.3f;
         return true;
     }
 
@@ -567,7 +571,7 @@ public sealed partial class JetskiRunnerGame
 
     sealed partial class RunnerTrigger
     {
-        public bool Wide, Pulled;
+        public bool Wide, Pulled, Light;
         public float DriftCenter, DriftRange, DriftDir;
         Transform fallingRock, warning; LineRenderer bolt;
         float strikeTime = -1f;

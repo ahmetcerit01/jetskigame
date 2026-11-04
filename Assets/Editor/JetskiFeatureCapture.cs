@@ -21,9 +21,10 @@ public static class JetskiFeatureCapture
         (6.3f, "spawn:CreateLavaRock"), (7.25f, "shot:lava"),
         (7.4f, "spawn:CreateLightning"), (8.32f, "shot:lightning_warn"), (9.0f, "shot:lightning"),
         (9.3f, "spawn:CreateIceFloe"), (10.2f, "shot:icefloe"),
-        (10.4f, "chase"), (11.9f, "shot:chaser"), (11.95f, "side:chaser_side"),
-        (12.1f, "duck"), (12.5f, "side:duck"),
-        (12.8f, "crash"), (14.6f, "shot:gameover"),
+        (10.25f, "ships"), (11.0f, "shot:ships_side_by_side"), (11.02f, "skiff"), (11.18f, "shot:skiff"),
+        (11.2f, "chase"), (12.7f, "shot:chaser"), (12.75f, "side:chaser_side"),
+        (12.9f, "duck"), (13.3f, "side:duck"),
+        (13.6f, "crash"), (15.4f, "shot:gameover"),
     };
 
     static JetskiFeatureCapture() { if (SessionState.GetBool(Key + "on", false)) EditorApplication.update += Tick; }
@@ -80,6 +81,21 @@ public static class JetskiFeatureCapture
                 var ps = m.GetParameters();
                 object[] callArgs = ps.Length == 3 ? new object[] { 0, z, a.Contains("Log") } : new object[] { 1, z };
                 m.Invoke(game, callArgs);
+            }
+            else if (a == "ships")
+            {
+                foreach (var go in (System.Collections.Generic.List<GameObject>)gt.GetField("spawned", flags).GetValue(game))
+                    if (go && go.transform.position.z > 1f && go.transform.position.z < 60f) go.SetActive(false);
+                float z = game.DistanceTravelled + game.Speed * .85f + 14f;
+                for (int lane = 0; lane < 3; lane++) gt.GetMethod("SpawnShip", flags).Invoke(game, new object[] { lane, z, 0f });
+            }
+            else if (a == "skiff")
+            {
+                foreach (var go in (System.Collections.Generic.List<GameObject>)gt.GetField("spawned", flags).GetValue(game))
+                    if (go && go.transform.position.z > 1f && go.transform.position.z < 60f) go.SetActive(false);
+                float z = game.DistanceTravelled + 9f;
+                var prefab = ((TropicalScenery)gt.GetField("scenery", flags).GetValue(game)).Model("37-pirate-skiff");
+                for (int lane = 0; lane < 3; lane++) gt.GetMethod("SpawnSkiff", flags).Invoke(game, new object[] { prefab, lane, z, 0f });
             }
             else if (a == "chase") gt.GetField("chaseLeft", flags).SetValue(game, 9f);
             else if (a == "duck") gt.GetMethod("Duck", flags).Invoke(game, null);

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 // Procedural low-poly shoreline for every biome of the run: hazy backdrop mountains, clouds and a volcano that
@@ -117,6 +118,8 @@ public sealed class TropicalScenery
         chunk.transform.localScale = new Vector3(side < 0 ? -scale : scale, scale, scale);
         return chunk;
     }
+
+    public IEnumerable<GameObject> AllTemplates => templates.SelectMany(t => t);
 
     public GameObject Model(string name) => models.TryGetValue(name, out var m) ? m : null;
 
