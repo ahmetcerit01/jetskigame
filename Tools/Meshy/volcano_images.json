@@ -1,0 +1,20 @@
+{
+ "style": "Stylized vibrant tropical pirate mobile game art, chunky rounded beveled forms, simplified hand-painted surfaces, isolated single asset, three-quarter view, full object visible with generous margin, plain light gray background, soft neutral studio lighting, subtle contact shadow, no scene, no water, no text, no UI, no collage.",
+ "assets": [
+  {
+   "name": "38-volcano",
+   "aspect": "1:1",
+   "prompt": "One huge active volcano mountain, a tall chunky cone of dark charcoal basalt with sharp faceted rock planes, a wide open crater at the top filled with glowing orange lava, three thick bright lava streams running down the slopes, broad flat circular base, no smoke, no clouds, no trees."
+  },
+  {
+   "name": "39-lava-mountain",
+   "aspect": "1:1",
+   "prompt": "One jagged volcanic rock mountain, an asymmetrical spiky peak of dark basalt with sharp faceted planes, glowing orange lava cracks running through the rock and a small pool of lava at its foot, flat base, no smoke, no trees."
+  },
+  {
+   "name": "40-meteor",
+   "aspect": "1:1",
+   "prompt": "One small round flying meteor rock, a lumpy solid ball of dark charred stone covered with deep glowing orange magma cracks, visible all around, no flames, no smoke trail, no base."
+  }
+ ]
+}

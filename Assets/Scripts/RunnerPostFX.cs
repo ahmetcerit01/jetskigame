@@ -7,6 +7,7 @@ public sealed class RunnerPostFX : MonoBehaviour
 {
     public float Bloom = .6f, Saturation = 1.1f, Contrast = 1.05f, Vignette = .25f, Radial;
     public Color Tint = Color.white;
+    public Vector4 Focus = new(.5f, .25f, .32f, .22f);
     Material material;
     const int Levels = 5;
     readonly RenderTexture[] chain = new RenderTexture[Levels];
@@ -28,6 +29,7 @@ public sealed class RunnerPostFX : MonoBehaviour
         if (edgeOnly)
         {
             material.SetFloat("_Radial", Radial);
+            material.SetVector("_Focus", Focus);
             Graphics.Blit(source, destination, material, 4);
             return;
         }
@@ -53,6 +55,7 @@ public sealed class RunnerPostFX : MonoBehaviour
         material.SetFloat("_Contrast", Contrast);
         material.SetFloat("_Vignette", Vignette);
         material.SetFloat("_Radial", Radial);
+        material.SetVector("_Focus", Focus);
         material.SetVector("_Tint", Tint);
         Graphics.Blit(source, destination, material, 3);
         for (int i = 0; i < used; i++) { RenderTexture.ReleaseTemporary(chain[i]); chain[i] = null; }

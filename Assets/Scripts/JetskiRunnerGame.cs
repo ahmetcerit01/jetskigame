@@ -313,7 +313,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if (postFx)
         {
             postFx.Bloom = a.bloom; postFx.Saturation = a.saturation; postFx.Contrast = a.contrast; postFx.Vignette = a.vignette; postFx.Tint = a.gradeTint;
-            postFx.Radial = Mathf.Lerp(.004f, .02f, Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed)) + (boostLeft > 0 ? .03f : 0f);
+            postFx.Radial = Mathf.Lerp(.004f, .02f, Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed)) + (boostLeft > 0 ? .012f : 0f);
+            var focus = gameCamera.WorldToViewportPoint(player.position + Vector3.up * FocusHeight);
+            postFx.Focus = new Vector4(focus.x, focus.y, FocusSize.x, FocusSize.y);
         }
         UpdateReflection(a);
         scenery?.SetAtmosphere(a.mountain, a.cloud, a.volcano);
@@ -345,19 +347,19 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
 
     // A model's first draw makes the GPU prepare its mesh, textures and pipeline state: 30-50 ms on a phone, mid-run.
-    // So everything the run can show is drawn once behind a black cover, on the very first frame after launch.
+    // So everything the run can show is drawn once behind the loading screen, on the very first frame after launch.
+    const float FocusHeight=.7f;
+    static readonly Vector2 FocusSize=new(.34f,.2f);
+    const float MenuScreenZ=4.6f;
     const float StumbleSpeed=.68f, ScreenForward=4.2f, ScreenStumble=2.2f, ScreenBoost=.7f;
     float wavePhase, screenZ;
 
+    public static bool Ready { get; private set; }
     static bool prewarmed;
     System.Collections.IEnumerator Prewarm()
     {
         if(prewarmed) yield break;
         prewarmed=true;
-        var cover=new GameObject("Loading cover",typeof(Canvas),typeof(UnityEngine.UI.Image));
-        var canvas=cover.GetComponent<Canvas>(); canvas.renderMode=RenderMode.ScreenSpaceOverlay; canvas.sortingOrder=1000;
-        cover.GetComponent<UnityEngine.UI.Image>().color=Color.black;
-
         // Hazards build their parts and materials in code, so one of each is built out of sight and removed afterwards.
         int firstChild=movingWorld.childCount, firstSpawned=spawned.Count;
         const float Away=-200f;
@@ -396,13 +398,15 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         foreach(var effect in effects) if(effect) effect.Clear();
         for(int i=movingWorld.childCount-1;i>=firstChild;i--) Destroy(movingWorld.GetChild(i).gameObject);
         spawned.RemoveRange(firstSpawned,spawned.Count-firstSpawned);
-        Destroy(cover);
+        Ready=true;
     }
 
     // Main menu: the jetski idles on the water behind the menu while the scenery keeps its atmosphere.
     void UpdateMenu()
     {
-        var p = player.position; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; player.position = p;
+        // the jetski idles above the menu buttons, then drops back as the run starts
+        screenZ = MenuScreenZ;
+        var p = player.position; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; p.z = screenZ; player.position = p;
         player.rotation = Quaternion.Euler(Mathf.Sin(Time.time * 1.7f) * 1.5f, 0, Mathf.Sin(Time.time * 1.3f) * 2.5f);
         foreach (var spray in sprays) { var e = spray.emission; e.enabled = false; }
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX", player.position.x); waterSurfaceMaterial.SetVector("_PlayerPos", new Vector4(player.position.x, 0, player.position.z, 0)); }
@@ -466,6 +470,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         ApplyAtmosphere();
         FollowCamera();
         UpdateExtras(speed);
+        UpdateAmbientMeteors();
         SpawnLandmarksUpTo(distanceTravelled + ShoreAhead);
         SpawnShoreUpTo(distanceTravelled + ShoreAhead);
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
@@ -497,6 +502,10 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             ClearTrafficLane(nextRowAt, rowFirst);
             if (hazards) SpawnTraffic(nextRowAt);
             float gap = rowLength + Mathf.Max(Random.Range(13f, 19f) * Mathf.Lerp(1f, 1.35f, SpeedProgress) * GapRhythm(nextRowAt), RunSpeed * MinRowSeconds);
+            // the volcano throws extra meteors into the lane that is neither the way through nor the ships'
+            if (hazards && BiomeAt(nextRowAt) == EnvironmentPreset.Volcanic && Random.value < ExtraMeteorChance)
+                for (int l = 0; l < 3; l++)
+                    if (l != selected && l != TrafficLane(nextRowAt)) { CreateLavaRock(l, nextRowAt + gap * .5f); break; }
             // a coin trail along the open lane fills the stretch up to the next row
             if (hazards && Random.value < .8f) CreateCoinRow(selected, nextRowAt + TrailStart, Mathf.FloorToInt((gap - TrailStart) / 3.6f));
             nextRowAt += gap;
@@ -1047,7 +1056,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
 
     // Pirate ships work like lane-blocking traffic: some lie at anchor, others sail head-on down a lane.
-    const float MinRowSeconds=.62f, RhythmLength=260f, RhythmDepth=.12f, DodgeSeconds=.55f, FirstHazardAt=40f, TrailStart=8f;
+    const float ExtraMeteorChance=.35f, MinRowSeconds=.62f, RhythmLength=260f, RhythmDepth=.12f, DodgeSeconds=.55f, FirstHazardAt=40f, TrailStart=8f;
 
     // The open lane drifts at most one lane per row, so one swipe is always enough to stay on the way through.
     int freeLane=1;

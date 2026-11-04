@@ -11,10 +11,11 @@ using UnityEngine;
 public static class JetskiFeatureCapture
 {
     const string Key = "JetskiFeatureCapture.";
+    const float BootSeconds = 2f;     // the loading screen comes first
     static readonly (float t, string action)[] Steps =
     {
-        (.8f, "shop"), (1.2f, "shot:shop"), (1.3f, "menu"), (1.6f, "shot:menu"), (1.7f, "play"),
-        (3.2f, "shot:hud"),
+        (-1.0f, "shot:loading"), (.8f, "shop"), (1.2f, "shot:shop"), (1.21f, "settings"), (1.5f, "shot:settings"), (1.51f, "menu"), (1.9f, "shot:menu"), (1.95f, "play"),
+        (3.2f, "boost"), (3.28f, "shot:boost"),
         (3.3f, "spawn:CreateLogRow"), (4.15f, "shot:log"),
         (4.4f, "spawn:CreateBannerRow"), (5.25f, "shot:banner"),
         (5.4f, "spawn:CreatePowerUp"), (6.2f, "shot:powerup"),
@@ -24,7 +25,7 @@ public static class JetskiFeatureCapture
         (10.25f, "ships"), (11.0f, "shot:ships_side_by_side"), (11.02f, "skiff"), (11.18f, "shot:skiff"),
         (11.2f, "chase"), (12.7f, "shot:chaser"), (12.75f, "side:chaser_side"),
         (12.9f, "duck"), (13.3f, "side:duck"),
-        (13.6f, "crash"), (15.4f, "shot:gameover"),
+        (13.6f, "crash"), (15.4f, "shot:gameover"), (15.5f, "curtain_restart"), (17.5f, "curtain_check"),
     };
 
     static JetskiFeatureCapture() { if (SessionState.GetBool(Key + "on", false)) EditorApplication.update += Tick; }
@@ -58,14 +59,14 @@ public static class JetskiFeatureCapture
         }
         float start = SessionState.GetFloat(Key + "start", -1);
         if (start < 0) { SessionState.SetFloat(Key + "start", Time.time); return; }
-        float t = Time.time - start;
+        float t = Time.time - start - BootSeconds;
         int step = SessionState.GetInt(Key + "step", 0);
         var flags = BindingFlags.NonPublic | BindingFlags.Instance;
         var gt = typeof(JetskiRunnerGame);
         while (step < Steps.Length && t >= Steps[step].t)
         {
             var a = Steps[step].action;
-            if (a == "shop" || a == "menu")
+            if (a == "shop" || a == "menu" || a == "settings")
             {
                 var panel = (GameObject)typeof(RunnerUI).GetField(a, flags).GetValue(ui);
                 typeof(RunnerUI).GetMethod("Show", flags).Invoke(ui, new object[] { panel });
@@ -89,6 +90,14 @@ public static class JetskiFeatureCapture
                 float z = game.DistanceTravelled + game.Speed * .85f + 14f;
                 for (int lane = 0; lane < 3; lane++) gt.GetMethod("SpawnShip", flags).Invoke(game, new object[] { lane, z, 0f });
             }
+            else if (a == "curtain_restart")
+                typeof(RunnerUI).GetMethod("AfterCurtain", flags).Invoke(ui, new object[] { (System.Action)(() => game.Restart(true)) });
+            else if (a == "curtain_check")
+            {
+                var curtain = (UnityEngine.UI.Image)typeof(RunnerUI).GetField("curtain", flags).GetValue(ui);
+                Debug.Log($"CURTAIN CHECK alpha={curtain.color.a:F2} state={game.State} loading={((GameObject)typeof(RunnerUI).GetField("loading", flags).GetValue(ui)).activeSelf}");
+            }
+            else if (a == "boost") gt.GetField("boostLeft", flags).SetValue(game, 2f);
             else if (a == "skiff")
             {
                 foreach (var go in (System.Collections.Generic.List<GameObject>)gt.GetField("spawned", flags).GetValue(game))

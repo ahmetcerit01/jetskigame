@@ -40,7 +40,11 @@ public static class JetskiBuild
     }
 
     // Xcode project of the real game for a device.
-    public static void IOS() => Build(BuildTarget.iOS, "Build/iOS", BuildOptions.None, null);
+    public static void IOS()
+    {
+        PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.iOS, "com.indiestudio.jetskirunner");
+        Build(BuildTarget.iOS, "Build/iOS", BuildOptions.None, null);
+    }
 
     static void Build(BuildTarget target, string path, BuildOptions options = BuildOptions.None, string[] defines = null)
     {

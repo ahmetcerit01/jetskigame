@@ -29,6 +29,7 @@ public static class JetskiGraphicsSetup
         var shore = CookShoreModels();
         var tunnel = CookIceTunnel();
         KeepEmission(templatePath); KeepEmission("Assets/Materials/Shore/32-ice-crystals.mat");
+        foreach (var lavaModel in new[] { "38-volcano", "39-lava-mountain", "40-meteor" }) KeepEmission("Assets/Materials/Shore/" + lavaModel + ".mat");
         foreach (var path in Scenes)
         {
             if (!File.Exists(path)) continue;
@@ -107,9 +108,10 @@ public static class JetskiGraphicsSetup
             bool ice = name.Contains("ice") || name.Contains("icicle") || name.Contains("glacier");
             mat.SetFloat("_Glossiness", ice ? .55f : .15f); mat.SetFloat("_Metallic", 0f); mat.enableInstancing = true;
             mat.SetColor("_Color", name.Contains("kalesi") ? new Color(.84f, .76f, .64f) : Color.white);   // pale stone blows out in the tropical sun
-            if (name.Contains("crystals"))
+            bool lava = name.Contains("volcano") || name.Contains("lava-mountain") || name.Contains("meteor");   // the rock is dark, so only the lava shows
+            if (name.Contains("crystals") || lava)
             {
-                mat.EnableKeyword("_EMISSION"); mat.SetTexture("_EmissionMap", color); mat.SetColor("_EmissionColor", new Color(.75f, .75f, .75f));
+                mat.EnableKeyword("_EMISSION"); mat.SetTexture("_EmissionMap", color); mat.SetColor("_EmissionColor", lava ? new Color(1.25f, 1.25f, 1.25f) : new Color(.75f, .75f, .75f));
                 mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
             }
             EditorUtility.SetDirty(mat);

@@ -6,9 +6,16 @@ Shader "JetskiRunner/PostFX"
     sampler2D _MainTex, _BloomTex;
     float4 _MainTex_TexelSize;
     float _Threshold, _Bloom, _Saturation, _Contrast, _Vignette, _Radial;
+    float4 _Focus;     // xy: the jetski on screen, zw: size of the area kept sharp around it
     float3 _Tint;
     struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
     v2f vert(appdata_img v) { v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = v.texcoord; return o; }
+
+    // 0 over the jetski and rider, 1 away from them, so the speed blur never touches the player
+    float BlurAmount(float2 uv, float2 toC)
+    {
+        return saturate(dot(toC, toC) * 7) * smoothstep(.75, 1.3, length((uv - _Focus.xy) / _Focus.zw));
+    }
 
     // 4-tap box: cheap, and stable enough once chained across mips
     float3 Box(float2 uv, float d)
@@ -43,7 +50,7 @@ Shader "JetskiRunner/PostFX"
         {
             float3 sum = c;
             for (int k = 1; k < 6; k++) sum += tex2D(_MainTex, i.uv - toC * _Radial * k / 5).rgb;
-            c = lerp(c, sum / 6, saturate(dot(toC, toC) * 7));
+            c = lerp(c, sum / 6, BlurAmount(i.uv, toC));
         }
         c += tex2D(_BloomTex, i.uv).rgb * _Bloom * .22;     // the mip chain adds up, so normalise it
         c = Shoulder(c);
@@ -70,7 +77,7 @@ Shader "JetskiRunner/PostFX"
         float2 toC = i.uv - float2(.5, .58);
         float3 c = tex2D(_MainTex, i.uv).rgb, sum = c;
         for (int k = 1; k < 4; k++) sum += tex2D(_MainTex, i.uv - toC * _Radial * k / 3).rgb;
-        return float4(lerp(c, sum / 4, saturate(dot(toC, toC) * 7)), 1);
+        return float4(lerp(c, sum / 4, BlurAmount(i.uv, toC)), 1);
     }
     ENDCG
     SubShader

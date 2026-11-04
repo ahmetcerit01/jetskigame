@@ -79,8 +79,8 @@ public sealed class TropicalScenery
         else { templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower()); templates[1].Add(BuildCliff(0)); }
         // 2 Cave passage: walls come from the tunnel segments, no shore chunks.
         // 3 Volcanic zone
-        templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaCone(0));
-        templates[3].Add(BuildLavaCone(1)); templates[3].Add(BuildAshIsland());
+        templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaMountain(1f, 0f));
+        templates[3].Add(BuildLavaMountain(1.45f, 2f)); templates[3].Add(BuildAshIsland());
         // 4 Storm
         templates[4].Add(BuildStormCliff(0)); templates[4].Add(BuildStormCliff(1)); templates[4].Add(models.Count > 0 ? BuildSileLighthouse() : BuildLighthouse());
         if (models.Count > 0) { templates[4].Add(BuildBoulders()); templates[4].Add(BuildCoastCliff(1)); }
@@ -118,6 +118,9 @@ public sealed class TropicalScenery
         chunk.transform.localScale = new Vector3(side < 0 ? -scale : scale, scale, scale);
         return chunk;
     }
+
+    const string VolcanoModel = "38-volcano", LavaMountainModel = "39-lava-mountain";
+    const float VolcanoScale = 2.2f, VolcanoSink = -6f;
 
     public IEnumerable<GameObject> AllTemplates => templates.SelectMany(t => t);
 
@@ -232,13 +235,21 @@ public sealed class TropicalScenery
         // Volcano: sinks below the horizon outside the volcanic zone and rises out of the haze inside it.
         volcano = new GameObject("Backdrop volcano").transform; volcano.SetParent(root, false);
         volcano.position = new Vector3(-26, -90, 300);
-        Solid("Volcano cone", FacetedHill(70, 78, 12, 5, 501), basalt, volcano);
-        Solid("Volcano crater glow", FacetedHill(9, 6, 9, 2, 502), lava, volcano).transform.localPosition = new Vector3(0, 74, 0);
-        for (int i = 0; i < 3; i++)
+        if (models.TryGetValue(VolcanoModel, out var volcanoPrefab))
         {
-            var stream = Solid("Lava stream", FacetedHill(4, 30, 6, 3, 510 + i), lava, volcano).transform;
-            stream.localPosition = new Vector3(-10 + i * 10, 38, -32 + i * 4);
-            stream.localRotation = Quaternion.Euler(-48, i * 12 - 12, 0);
+            var model = Object.Instantiate(volcanoPrefab, volcano).transform;   // its base disc stays under the water
+            model.localPosition = new Vector3(0, VolcanoSink, 0); model.localScale = Vector3.one * VolcanoScale;
+        }
+        else
+        {
+            Solid("Volcano cone", FacetedHill(70, 78, 12, 5, 501), basalt, volcano);
+            Solid("Volcano crater glow", FacetedHill(9, 6, 9, 2, 502), lava, volcano).transform.localPosition = new Vector3(0, 74, 0);
+            for (int i = 0; i < 3; i++)
+            {
+                var stream = Solid("Lava stream", FacetedHill(4, 30, 6, 3, 510 + i), lava, volcano).transform;
+                stream.localPosition = new Vector3(-10 + i * 10, 38, -32 + i * 4);
+                stream.localRotation = Quaternion.Euler(-48, i * 12 - 12, 0);
+            }
         }
         for (int i = 0; i < 6; i++)
         {
@@ -367,6 +378,16 @@ public sealed class TropicalScenery
         var vein = Solid("Lava vein", FacetedHill(1.1f, 6.5f + variant * 2.5f, 5, 3, 141 + variant), lava, root.transform).transform;
         vein.localPosition = new Vector3(1.7f, -.4f, .8f); vein.localRotation = Quaternion.Euler(0, 0, 14);
         Solid("Lava pool", FacetedHill(1.9f, .15f, 9, 1, 151 + variant), lava, root.transform).transform.localPosition = new Vector3(.4f, -.38f, 1.4f);
+        return root;
+    }
+
+    // The modelled peak with its lava pool turned to the lanes, or the old low-poly cone if the model is missing.
+    GameObject BuildLavaMountain(float scale, float setback)
+    {
+        if (!models.TryGetValue(LavaMountainModel, out var prefab)) return BuildLavaCone(scale > 1.2f ? 1 : 0);
+        var root = Chunk("Lava mountain");
+        var t = Object.Instantiate(prefab, root.transform).transform;
+        t.localPosition = new Vector3(4f + setback, -.4f, 0f); t.localRotation = Quaternion.Euler(0, 180f, 0); t.localScale = Vector3.one * scale;
         return root;
     }
 

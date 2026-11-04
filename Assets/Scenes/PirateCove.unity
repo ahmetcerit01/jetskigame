@@ -207,6 +207,9 @@ MonoBehaviour:
   - {fileID: 8383624491350726086, guid: a91ee7d03c1754ab6b52105731556bdb, type: 3}
   - {fileID: 7370764036228214094, guid: dd9f55de1416b454faa8c54c822d22b1, type: 3}
   - {fileID: 6860634352065018363, guid: 23d2d1afb873c4c299816812b8817e4f, type: 3}
+  - {fileID: 5253349557774769624, guid: 7ac43b9c27ffb41af9c6b7b1867e2191, type: 3}
+  - {fileID: 704262726723306767, guid: 36afdbda821474f89a6c72e3e1ab140f, type: 3}
+  - {fileID: 6967361945808363493, guid: 4a02b11d5f0ff4a24a4f62f287cb65fc, type: 3}
   skyShader: {fileID: 4800000, guid: 1d5c9ee08de69d74b992fd2ab34ea3c2, type: 3}
   sprayMaterial: {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
   postFxShader: {fileID: 4800000, guid: 8555615ac658c46c2acedb5a27b91575, type: 3}

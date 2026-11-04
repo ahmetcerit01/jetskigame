@@ -63,7 +63,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
     readonly List<Counter> counters = new();
     JetskiRunnerGame game;
     string outPath = "benchmark_report.txt";
-    static readonly int[] ShotsAt = { 300, 830, 900, 970, 2500, 4300 };
+    static readonly int[] ShotsAt = { 900, 2800, 3000, 3300, 3500 };
     int shot;
     int frames;
     bool skipFrame, capped;
@@ -107,13 +107,13 @@ public sealed class RunnerBenchmark : MonoBehaviour
         }
         frames++;
 #if UNITY_IOS
-        if (frames == 90) ScreenCapture.CaptureScreenshot((Debug.isDebugBuild ? "dev" : "release") + "_menu.png");
-        if (frames < 110) return;   // leave the menu up long enough to photograph it
+        if (frames == 170) ScreenCapture.CaptureScreenshot((Debug.isDebugBuild ? "dev" : "release") + "_menu.png");
+        if (frames < 190) return;   // leave the menu up long enough to photograph it
 #endif
         JetskiRunnerGame.TestInvulnerable = true;
         game.BeginRun();
 
-        if (frames <= WarmupFrames + 110) return;
+        if (frames <= WarmupFrames + 190) return;
         if (Time.unscaledTime > TimeoutSeconds) { Write("TIMED OUT\n"); Application.Quit(1); enabled = false; return; }
 
         int index = Mathf.FloorToInt(game.DistanceTravelled / game.BiomeLength);

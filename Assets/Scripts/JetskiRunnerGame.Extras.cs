@@ -530,12 +530,61 @@ public sealed partial class JetskiRunnerGame
         t.DriftCenter = go.transform.localPosition.x; t.DriftRange = laneWidth * .22f;   // never far enough to block the free lane t.DriftDir = laneIndex == 0 ? 1 : laneIndex == 2 ? -1 : (Random.value < .5f ? 1 : -1);
     }
 
+    // Volcanic zone: small meteors keep raining into the water beside the lanes, purely for show.
+    const string MeteorModel = "40-meteor";
+    const float MeteorHazardScale = 1.25f, MeteorGapMin = .9f, MeteorGapMax = 2.2f, MeteorFall = 26f, MeteorStartHeight = 30f;
+    const float MeteorSideMin = 6.5f, MeteorSideMax = 18f, MeteorAheadMin = 35f, MeteorAheadMax = 95f, MeteorZone = .4f;
+    float nextMeteorIn;
+
+    void UpdateAmbientMeteors()
+    {
+        if (atmosphere.embers < MeteorZone || scenery == null) return;
+        nextMeteorIn -= Time.deltaTime;
+        if (nextMeteorIn > 0f) return;
+        nextMeteorIn = Random.Range(MeteorGapMin, MeteorGapMax);
+        var model = scenery.Model(MeteorModel);
+        if (!model) return;
+        var go = Instantiate(model, movingWorld);
+        float side = Random.value < .5f ? -1f : 1f;
+        go.transform.localPosition = new Vector3(side * Random.Range(MeteorSideMin, MeteorSideMax), MeteorStartHeight, distanceTravelled + Random.Range(MeteorAheadMin, MeteorAheadMax));
+        go.transform.localScale = Vector3.one * Random.Range(1.1f, 2.4f);
+        go.AddComponent<FallingMeteor>().Init(this, side);
+        spawned.Add(go);
+    }
+
+    sealed class FallingMeteor : MonoBehaviour
+    {
+        JetskiRunnerGame game; float side; Vector3 spin;
+        public void Init(JetskiRunnerGame owner, float fromSide)
+        {
+            game = owner; side = fromSide;
+            spin = new Vector3(Random.Range(90f, 240f), Random.Range(-120f, 120f), Random.Range(-120f, 120f));
+        }
+        void Update()
+        {
+            transform.localPosition += new Vector3(side * 3f, -MeteorFall, 0f) * Time.deltaTime;
+            transform.Rotate(spin * Time.deltaTime);
+            if (transform.localPosition.y > 0f) return;
+            game.ImpactSplash(transform.position, .9f);
+            Destroy(gameObject);
+        }
+    }
+
     void CreateLavaRock(int laneIndex, float z)
     {
         var go = Root("Falling lava rock", laneIndex, z, TriggerKind.Obstacle);
         var rock = new GameObject("Rock"); rock.transform.SetParent(go.transform, false);
-        Part(rock, PrimitiveType.Sphere, Vector3.zero, new Vector3(1.3f, 1.05f, 1.2f), lavaRock);
-        for (int i = 0; i < 5; i++) Part(rock, PrimitiveType.Sphere, Random.onUnitSphere * .5f, Vector3.one * Random.Range(.25f, .4f), lavaGlow);
+        var meteor = scenery != null ? scenery.Model(MeteorModel) : null;
+        if (meteor)
+        {
+            var m = Instantiate(meteor, rock.transform);
+            m.transform.localPosition = new Vector3(0, .1f, 0); m.transform.localScale = Vector3.one * MeteorHazardScale;
+        }
+        else
+        {
+            Part(rock, PrimitiveType.Sphere, Vector3.zero, new Vector3(1.3f, 1.05f, 1.2f), lavaRock);
+            for (int i = 0; i < 5; i++) Part(rock, PrimitiveType.Sphere, Random.onUnitSphere * .5f, Vector3.one * Random.Range(.25f, .4f), lavaGlow);
+        }
         rock.transform.localPosition = new Vector3(0, 22f, 0);
         TriggerBox(go, new Vector3(0, .45f, 0), new Vector3(1.2f, 1.1f, 1.2f));
         go.GetComponent<RunnerTrigger>().SetupFall(rock.transform, Telegraph(go, ringOrange));

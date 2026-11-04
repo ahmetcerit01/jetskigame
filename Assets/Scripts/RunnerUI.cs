@@ -10,9 +10,22 @@ public sealed class RunnerUI : MonoBehaviour
 {
     JetskiRunnerGame game;
     Font font;
-    Sprite rounded, circle;
+    Sprite rounded, circle, fadeDown, solid;   // a Filled image ignores its fill amount without a sprite
+    bool showShop, showSettings;
+    Image curtain, loadingBar;
+    RectTransform loadingDot;
+    Text loadingTip, playLabel;
+    RectTransform playButton;
+    float loadingShown, curtainTarget;
+    static bool curtainClosed;       // the last scene left through the curtain, so this one opens it again
+    const float LoadingSeconds = 1.5f, FadeSpeed = 6f, CurtainSpeed = 4f, ShadeOverscan = 300f, MaxLoadingStep = .05f, BannerPopFrom = 2.55f, BannerPopTo = 2.8f, BannerPop = 1.25f;
+    static readonly string[] Tips =
+    {
+        "SWIPE LEFT OR RIGHT TO CHANGE LANES", "SWIPE UP TO JUMP OVER LOGS AND BARRELS", "SWIPE DOWN TO DUCK UNDER BANNERS",
+        "ONE LANE IS ALWAYS OPEN", "A BOOST SMASHES THROUGH BARRELS", "WATCH THE SHIPS: EACH HAS ITS OWN SPEED",
+    };
     RectTransform root;
-    GameObject hud, menu, shop, pause, over;
+    GameObject hud, menu, shop, settings, pause, over, loading;
     Text score, multiplier, distance, coinCount, banner, chaseWarning, hint, bestMenu, bankMenu, bankShop;
     Text overTitle, overScore, overBest, overCoins, continueLabel, musicLabel, sfxLabel;
     Image bannerBack, continueBar;
@@ -41,7 +54,7 @@ public sealed class RunnerUI : MonoBehaviour
     void Build()
     {
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        rounded = MakeRounded(64, 22); circle = MakeRounded(64, 32);
+        rounded = MakeRounded(64, 22); circle = MakeRounded(64, 32); fadeDown = MakeFade(64); solid = Sprite.Create(Texture2D.whiteTexture, new Rect(0, 0, Texture2D.whiteTexture.width, Texture2D.whiteTexture.height), new Vector2(.5f, .5f));
         var canvas = gameObject.AddComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 10;
         var scaler = gameObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; scaler.referenceResolution = new Vector2(1080, 1920); scaler.matchWidthOrHeight = .5f;
@@ -54,7 +67,7 @@ public sealed class RunnerUI : MonoBehaviour
         {
             var es = new GameObject("EventSystem"); es.AddComponent<EventSystem>(); es.AddComponent<StandaloneInputModule>();
         }
-        BuildHud(); BuildMenu(); BuildShop(); BuildPause(); BuildOver();
+        BuildHud(); BuildMenu(); BuildShop(); BuildSettings(); BuildPause(); BuildOver(); BuildLoading(); BuildCurtain();
     }
 
     Rect appliedSafeArea;
@@ -88,7 +101,7 @@ public sealed class RunnerUI : MonoBehaviour
         {
             var row = Box(hud, new Vector2(40, -230 - i * 78), new Vector2(300, 64), Panel, Anchor.TopLeft);
             var fill = Box(row, new Vector2(0, -26), new Vector2(276, 10), Color.white).GetComponent<Image>();
-            fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal; fill.sprite = null;
+            fill.sprite = solid; fill.type = Image.Type.Filled; fill.fillMethod = Image.FillMethod.Horizontal;
             var label = Label(row, "", 32, new Vector2(0, 6), new Vector2(280, 44), Anchor.Center);
             powerRows.Add((row, label, fill));
         }
@@ -103,18 +116,98 @@ public sealed class RunnerUI : MonoBehaviour
     void BuildMenu()
     {
         menu = Group("Main menu");
-        Box(menu, Vector2.zero, new Vector2(2400, 3000), new Color(0, .04f, .09f, .35f), Anchor.Center).GetComponent<Image>().sprite = null;
-        Label(menu, "JETSKI\nRUNNER", 150, new Vector2(0, -230), new Vector2(1000, 360), Anchor.Top, Color.white).lineSpacing = .85f;
-        Label(menu, "PIRATE ESCAPE", 58, new Vector2(0, -600), new Vector2(900, 80), Anchor.Top, Gold);
-        var info = Box(menu, new Vector2(0, -760), new Vector2(760, 150), Panel, Anchor.Top);
-        bestMenu = Label(info, "BEST 0", 50, new Vector2(0, 30), new Vector2(720, 60), Anchor.Center);
-        bankMenu = Label(info, "COINS 0", 42, new Vector2(0, -36), new Vector2(720, 56), Anchor.Center, Gold);
+        Shade(menu, true, 760f, .5f); Shade(menu, false, 760f, .7f);
 
-        TextButton(menu, "PLAY", new Vector2(0, 520), new Vector2(620, 170), Anchor.Bottom, Orange, 84, () => { game.BeginRun(); });
-        TextButton(menu, "UPGRADES", new Vector2(0, 330), new Vector2(620, 130), Anchor.Bottom, Teal, 56, () => Show(shop));
-        musicLabel = TextButton(menu, "MUSIC ON", new Vector2(-200, 170), new Vector2(300, 100), Anchor.Bottom, Panel, 38, () => { RunnerSave.Music = !RunnerSave.Music; RunnerSave.Save(); game.Audio?.ApplyToggles(); });
-        sfxLabel = TextButton(menu, "SOUND ON", new Vector2(200, 170), new Vector2(300, 100), Anchor.Bottom, Panel, 38, () => { RunnerSave.Sfx = !RunnerSave.Sfx; RunnerSave.Save(); game.Audio?.ApplyToggles(); });
+        var coins = Box(menu, new Vector2(-40, -40), new Vector2(290, 88), Panel, Anchor.TopRight);
+        Box(coins, new Vector2(-104, 0), new Vector2(66, 66), Gold).GetComponent<Image>().sprite = circle;
+        bankMenu = Label(coins, "0", 46, new Vector2(30, 0), new Vector2(200, 80), Anchor.Center);
+        bankMenu.alignment = TextAnchor.MiddleRight;
+
+        Label(menu, "JETSKI\nRUNNER", 170, new Vector2(0, -170), new Vector2(1000, 400), Anchor.Top).lineSpacing = .82f;
+        var ribbon = Box(menu, new Vector2(0, -575), new Vector2(560, 84), Gold, Anchor.Top);
+        Label(ribbon, "PIRATE ESCAPE", 50, Vector2.zero, new Vector2(540, 80), Anchor.Center, new Color(.2f, .09f, 0f));
+        var best = Box(menu, new Vector2(0, -680), new Vector2(420, 76), Panel, Anchor.Top);
+        bestMenu = Label(best, "BEST  0", 44, Vector2.zero, new Vector2(400, 70), Anchor.Center);
+
+        playLabel = TextButton(menu, "PLAY", new Vector2(0, 270), new Vector2(680, 170), Anchor.Bottom, Orange, 90, () => { game.Audio?.Click(); game.BeginRun(); });
+        playButton = (RectTransform)playLabel.transform.parent;
+        TextButton(menu, "UPGRADES", new Vector2(-180, 150), new Vector2(330, 120), Anchor.Bottom, Teal, 46, () => Show(shop));
+        TextButton(menu, "SETTINGS", new Vector2(180, 150), new Vector2(330, 120), Anchor.Bottom, Panel, 46, () => Show(settings));
         if (!Application.isMobilePlatform) Label(menu, "ARROWS / WASD  -  SPACE JUMP  -  S DUCK  -  P PAUSE", 28, new Vector2(0, 70), new Vector2(1000, 50), Anchor.Bottom, new Color(1, 1, 1, .7f));
+    }
+
+    void BuildSettings()
+    {
+        settings = Group("Settings");
+        Box(settings, Vector2.zero, new Vector2(2400, 3000), new Color(0, .03f, .07f, .72f), Anchor.Center).GetComponent<Image>().sprite = null;
+        var card = Box(settings, new Vector2(0, 60), new Vector2(820, 620), Panel, Anchor.Center);
+        Label(card, "SETTINGS", 84, new Vector2(0, 220), new Vector2(780, 110), Anchor.Center);
+        musicLabel = TextButton(card, "MUSIC ON", new Vector2(0, 60), new Vector2(620, 130), Anchor.Center, Teal, 52, () => { RunnerSave.Music = !RunnerSave.Music; RunnerSave.Save(); game.Audio?.Click(); });
+        sfxLabel = TextButton(card, "SOUND ON", new Vector2(0, -100), new Vector2(620, 130), Anchor.Center, Teal, 52, () => { RunnerSave.Sfx = !RunnerSave.Sfx; RunnerSave.Save(); game.Audio?.Click(); });
+        TextButton(settings, "BACK", new Vector2(0, -400), new Vector2(480, 130), Anchor.Center, Orange, 56, () => Show(menu));
+    }
+
+    // Shown while the first frame prepares every model; on a restart nothing needs preparing and it never appears.
+    void BuildLoading()
+    {
+        loading = new GameObject("Loading screen", typeof(RectTransform));
+        var rt = (RectTransform)loading.transform; rt.SetParent(transform, false);
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = rt.offsetMax = Vector2.zero;
+        loading.AddComponent<CanvasGroup>();
+        Box(loading, Vector2.zero, new Vector2(2400, 3400), new Color(.02f, .1f, .17f), Anchor.Center).GetComponent<Image>().sprite = null;
+        Label(loading, "JETSKI\nRUNNER", 170, new Vector2(0, 220), new Vector2(1000, 400), Anchor.Center).lineSpacing = .82f;
+        Label(loading, "PIRATE ESCAPE", 50, new Vector2(0, -20), new Vector2(800, 70), Anchor.Center, Gold);
+        var track = Box(loading, new Vector2(0, -220), new Vector2(720, 26), new Color(1, 1, 1, .16f), Anchor.Center);
+        loadingBar = Box(track, Vector2.zero, new Vector2(720, 26), Gold).GetComponent<Image>();
+        loadingBar.sprite = solid; loadingBar.type = Image.Type.Filled; loadingBar.fillMethod = Image.FillMethod.Horizontal; loadingBar.fillAmount = 0;
+        var dot = Box(track, new Vector2(-360, 0), new Vector2(58, 58), Gold); dot.GetComponent<Image>().sprite = circle;
+        loadingDot = dot.GetComponent<RectTransform>();
+        loadingTip = Label(loading, Tips[UnityEngine.Random.Range(0, Tips.Length)], 34, new Vector2(0, -320), new Vector2(940, 110), Anchor.Center, new Color(1, 1, 1, .8f));
+        loading.SetActive(!JetskiRunnerGame.Ready);
+    }
+
+    void BuildCurtain()
+    {
+        var go = Box(gameObject, Vector2.zero, new Vector2(2400, 3400), Color.black, Anchor.Center);
+        curtain = go.GetComponent<Image>(); curtain.sprite = null; curtain.raycastTarget = false;
+        SetCurtain(curtainClosed ? 1f : 0f);
+        curtainClosed = false;
+    }
+
+    void SetCurtain(float a) { var c = curtain.color; c.a = a; curtain.color = c; curtain.enabled = a > 0f; }
+
+    // Closes the curtain before something abrupt such as a scene reload; the next scene opens it again.
+    void AfterCurtain(Action then) { game.Audio?.Click(); StartCoroutine(CloseCurtain(then)); }
+    System.Collections.IEnumerator CloseCurtain(Action then)
+    {
+        curtainTarget = 1f;
+        while (curtain.color.a < 1f) yield return null;
+        curtainClosed = true;
+        then();
+    }
+
+    // Fades a whole panel, which stays active until it is fully gone.
+    static void Present(GameObject panel, bool on)
+    {
+        var g = panel.GetComponent<CanvasGroup>();
+        if (on && !panel.activeSelf) { panel.SetActive(true); g.alpha = 0f; }
+        if (!panel.activeSelf) return;
+        g.alpha = Mathf.MoveTowards(g.alpha, on ? 1f : 0f, Time.unscaledDeltaTime * FadeSpeed);
+        g.interactable = g.blocksRaycasts = on;
+        panel.transform.localScale = Vector3.one * Mathf.Lerp(.97f, 1f, g.alpha);
+        if (!on && g.alpha <= 0f) panel.SetActive(false);
+    }
+
+    void UpdateTransitions()
+    {
+        SetCurtain(Mathf.MoveTowards(curtain.color.a, curtainTarget, Time.unscaledDeltaTime * CurtainSpeed));
+        if (!loading.activeSelf) return;
+        loadingShown += Mathf.Min(Time.unscaledDeltaTime, MaxLoadingStep);   // the long first frame must not use up the screen
+        float fill = Mathf.Clamp01(loadingShown / LoadingSeconds);
+        if (!JetskiRunnerGame.Ready) fill = Mathf.Min(fill, .8f);
+        loadingBar.fillAmount = fill;
+        loadingDot.anchoredPosition = new Vector2(Mathf.Lerp(-360f, 360f, fill), 0f);
+        Present(loading, fill < 1f);
     }
 
     void BuildShop()
@@ -147,7 +240,7 @@ public sealed class RunnerUI : MonoBehaviour
         Box(pause, Vector2.zero, new Vector2(2400, 3000), new Color(0, .03f, .07f, .6f), Anchor.Center).GetComponent<Image>().sprite = null;
         Label(pause, "PAUSED", 110, new Vector2(0, 260), new Vector2(900, 140), Anchor.Center);
         TextButton(pause, "RESUME", new Vector2(0, 40), new Vector2(560, 150), Anchor.Center, Orange, 70, () => game.TogglePause());
-        TextButton(pause, "MAIN MENU", new Vector2(0, -150), new Vector2(560, 130), Anchor.Center, Teal, 54, () => game.Restart(true));
+        TextButton(pause, "MAIN MENU", new Vector2(0, -150), new Vector2(560, 130), Anchor.Center, Teal, 54, () => AfterCurtain(() => game.Restart(true)));
     }
 
     void BuildOver()
@@ -163,15 +256,15 @@ public sealed class RunnerUI : MonoBehaviour
         continueLabel = TextButton(over, "CONTINUE", new Vector2(0, -70), new Vector2(700, 160), Anchor.Center, new Color(.15f, .7f, .3f), 56, () => game.Revive());
         continueButton = continueLabel.transform.parent.gameObject;
         continueBar = Box(continueButton, new Vector2(0, -62), new Vector2(640, 14), Color.white).GetComponent<Image>();
-        continueBar.type = Image.Type.Filled; continueBar.fillMethod = Image.FillMethod.Horizontal; continueBar.sprite = null;
-        TextButton(over, "PLAY AGAIN", new Vector2(0, -280), new Vector2(620, 150), Anchor.Center, Orange, 66, () => game.Restart(false));
-        TextButton(over, "MENU", new Vector2(0, -450), new Vector2(420, 120), Anchor.Center, Teal, 50, () => game.Restart(true));
+        continueBar.sprite = solid; continueBar.type = Image.Type.Filled; continueBar.fillMethod = Image.FillMethod.Horizontal;
+        TextButton(over, "PLAY AGAIN", new Vector2(0, -280), new Vector2(620, 150), Anchor.Center, Orange, 66, () => AfterCurtain(() => game.Restart(false)));
+        TextButton(over, "MENU", new Vector2(0, -450), new Vector2(420, 120), Anchor.Center, Teal, 50, () => AfterCurtain(() => game.Restart(true)));
     }
 
     // ---------- per frame ----------
 
     GameObject shown;
-    void Show(GameObject panel) { if (panel == shop || panel == menu) { menu.SetActive(panel == menu); shop.SetActive(panel == shop); } game.Audio?.Click(); }
+    void Show(GameObject panel) { showShop = panel == shop; showSettings = panel == settings; game.Audio?.Click(); }
 
     void Update()
     {
@@ -179,23 +272,27 @@ public sealed class RunnerUI : MonoBehaviour
         ApplySafeArea();
         var state = game.State;
         bool inMenu = state == JetskiRunnerGame.RunState.Menu;
-        if (!inMenu && (menu.activeSelf || shop.activeSelf)) { menu.SetActive(false); shop.SetActive(false); }
-        if (inMenu && !menu.activeSelf && !shop.activeSelf) menu.SetActive(true);
-        hud.SetActive(!inMenu);
-        pause.SetActive(game.Paused && !game.Crashed);
-        over.SetActive(game.Crashed && game.OverTime > 1.1f);
+        UpdateTransitions();
+        Present(menu, inMenu && !showShop && !showSettings);
+        Present(shop, inMenu && showShop);
+        Present(settings, inMenu && showSettings);
+        Present(hud, !inMenu);
+        Present(pause, game.Paused && !game.Crashed);
+        Present(over, game.Crashed && game.OverTime > 1.1f);
 
         if (inMenu)
         {
             bestMenu.text = "BEST  " + RunnerSave.Best.ToString("N0");
-            bankMenu.text = "COINS  " + RunnerSave.Bank.ToString("N0");
+            bankMenu.text = RunnerSave.Bank.ToString("N0");
+            playButton.localScale = Vector3.one * (1f + Mathf.Sin(Time.unscaledTime * 3.2f) * .025f);
             musicLabel.text = RunnerSave.Music ? "MUSIC ON" : "MUSIC OFF";
             sfxLabel.text = RunnerSave.Sfx ? "SOUND ON" : "SOUND OFF";
-            if (menu.activeSelf && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) game.BeginRun();
+            if (!loading.activeSelf && !showShop && !showSettings && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) game.BeginRun();
             if (shop.activeSelf) RefreshShop();
             return;
         }
 
+        bannerBack.transform.localScale = Vector3.one * Mathf.Lerp(1f, BannerPop, Mathf.InverseLerp(BannerPopFrom, BannerPopTo, game.BannerTime));
         score.text = game.Score.ToString("N0");
         multiplier.text = "x" + game.Multiplier;
         distance.text = Mathf.FloorToInt(game.DistanceTravelled).ToString("N0") + " m";
@@ -259,8 +356,26 @@ public sealed class RunnerUI : MonoBehaviour
         var go = new GameObject(name, typeof(RectTransform));
         var rt = (RectTransform)go.transform; rt.SetParent(root, false);
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = rt.offsetMax = Vector2.zero;
+        go.AddComponent<CanvasGroup>();
         go.SetActive(false);
         return go;
+    }
+
+    // A dark band fading out from the top or bottom edge, so text reads while the scene stays visible.
+    void Shade(GameObject parent, bool top, float height, float strength)
+    {
+        // reaches past the safe area, or its edge would show as a hard line at the notch and the home bar
+        var box = Box(parent, new Vector2(0, top ? ShadeOverscan : -ShadeOverscan), new Vector2(2400, height + ShadeOverscan), new Color(0, .04f, .09f, strength), top ? Anchor.Top : Anchor.Bottom);
+        var image = box.GetComponent<Image>(); image.sprite = fadeDown; image.type = Image.Type.Simple; image.raycastTarget = false;
+        if (!top) box.transform.localScale = new Vector3(1, -1, 1);
+    }
+
+    static Sprite MakeFade(int n)
+    {
+        var tex = new Texture2D(1, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        for (int y = 0; y < n; y++) tex.SetPixel(0, y, new Color(1, 1, 1, Mathf.SmoothStep(0f, 1f, y / (n - 1f))));
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, 1, n), new Vector2(.5f, .5f));
     }
 
     static RectTransform Place(GameObject go, GameObject parent, Vector2 pos, Vector2 size, Anchor anchor)
