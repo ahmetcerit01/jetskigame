@@ -63,7 +63,11 @@ public sealed class RunnerBenchmark : MonoBehaviour
     readonly List<Counter> counters = new();
     JetskiRunnerGame game;
     string outPath = "benchmark_report.txt";
-    static readonly int[] ShotsAt = { 200, 900, 2500, 3300, 4300 };
+    // Screenshots cost a long frame each, so a measuring run takes none: list distances here only to look at a build.
+    static readonly int[] ShotsAt = { };
+
+    // What a phone build has to meet.
+    const float BudgetFps = 58f, BudgetFrameMs = 50f; const int BudgetDrawCalls = 500;
     int shot;
     int frames;
     bool skipFrame, capped;
@@ -77,6 +81,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
 #if UNITY_IOS
         capped = true;      // a phone is judged at the frame cap it ships with
         outPath = Path.Combine(Application.persistentDataPath, Debug.isDebugBuild ? "dev.txt" : "release.txt");
+        try { File.Delete(outPath); } catch (IOException) { }   // no leftover report can pass for this run
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 #endif
         Application.runInBackground = true;
@@ -201,7 +206,8 @@ public sealed class RunnerBenchmark : MonoBehaviour
             float P(float q) => s[Mathf.Min(s.Length - 1, (int)(s.Length * q))];
             sb.Append($"{z.Biome,-14} {s.Length,6} {1000f / s.Average(),8:F0} {P(.5f),10:F2} {P(.95f),7:F2} {P(.99f),7:F2} {s[^1],7:F1} {s.Count(f => f > 16.7f),11} {s.Count(f => f > 33.3f),9}\n");
         }
-        sb.Append($"\nsailing ships per biome: {string.Join(", ", zones.Select((z, i) => z == null ? "-" : ((i + 1 < Zones && zones[i + 1] != null ? zones[i + 1].ShipsAtStart : game.ShipsSailed) - z.ShipsAtStart).ToString()))}\n");
+        AppendBudgets(sb);
+        sb.Append($"sailing ships per biome: {string.Join(", ", zones.Select((z, i) => z == null ? "-" : ((i + 1 < Zones && zones[i + 1] != null ? zones[i + 1].ShipsAtStart : game.ShipsSailed) - z.ShipsAtStart).ToString()))}\n");
         sb.Append($"speed at end of each biome: {string.Join(", ", zones.Select(z => z == null ? "-" : z.EndSpeed.ToString("F1")))}\n");
         sb.Append($"\nmarkers found: {string.Join(", ", markers.Select(m => m.name))}\nframes over 34 ms (first {spikes.Count}):\n");
         foreach (var l in spikes) sb.Append(l);
@@ -220,6 +226,23 @@ public sealed class RunnerBenchmark : MonoBehaviour
         var dir = Path.GetDirectoryName(Path.GetFullPath(outPath));
         Directory.CreateDirectory(dir);
         File.WriteAllText(outPath, sb.ToString());
+    }
+
+    void AppendBudgets(StringBuilder sb)
+    {
+        var over = new List<string>();
+        foreach (var z in zones.Where(z => z != null && z.Frames.Count > 0))
+        {
+            float fps = 1000f / z.Frames.Average(), worst = z.Frames.Max();
+            if (capped && fps < BudgetFps) over.Add($"{z.Biome} {fps:F0} FPS (min {BudgetFps:F0})");
+            if (worst > BudgetFrameMs) over.Add($"{z.Biome} frame {worst:F0} ms (max {BudgetFrameMs:F0})");
+            if (z.Counters.TryGetValue("Draw Calls Count", out var draws) && draws.max > BudgetDrawCalls) over.Add($"{z.Biome} {draws.max:F0} draw calls (max {BudgetDrawCalls})");
+        }
+        bool complete = zones.All(z => z != null && z.Frames.Count > 0);
+        string drawNote = Debug.isDebugBuild ? "" : " (draw calls are only measured in a development build)";
+        sb.Append("\nBUDGET: ").Append(!complete ? "INCOMPLETE RUN" : over.Count == 0 ? "PASS" : "OVER").Append(drawNote).Append('\n');
+        foreach (var o in over) sb.Append("  over: ").Append(o).Append('\n');
+        sb.Append('\n');
     }
 
     static void AppendAssets<T>(StringBuilder sb, string label) where T : Object

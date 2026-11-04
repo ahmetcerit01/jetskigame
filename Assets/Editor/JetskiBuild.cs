@@ -31,12 +31,14 @@ public static class JetskiBuild
         Build(BuildTarget.StandaloneOSX, "Build/MacBenchmark/Dev/JetskiRunner.app", BuildOptions.Development, defines);
     }
 
-    // Xcode projects of the same benchmark players; signing and the bundle id are given to xcodebuild, not stored in the project.
+    // Xcode project of a benchmark player; signing is given to xcodebuild, not stored in the project.
+    //   -executeMethod JetskiBuild.IOSBenchmark -benchmarkVariant Release|Dev
     public static void IOSBenchmark()
     {
-        var defines = new[] { "JETSKI_BENCHMARK" };
-        Build(BuildTarget.iOS, "Build/iOSBenchmark/Release", BuildOptions.None, defines);
-        Build(BuildTarget.iOS, "Build/iOSBenchmark/Dev", BuildOptions.Development, defines);
+        var args = System.Environment.GetCommandLineArgs();
+        int at = System.Array.IndexOf(args, "-benchmarkVariant");
+        bool dev = at >= 0 && at + 1 < args.Length && args[at + 1] == "Dev";
+        Build(BuildTarget.iOS, dev ? "Build/iOSBenchmark/Dev" : "Build/iOSBenchmark/Release", dev ? BuildOptions.Development : BuildOptions.None, new[] { "JETSKI_BENCHMARK" });
     }
 
     // Xcode project of the real game for a device.
