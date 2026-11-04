@@ -13,7 +13,7 @@ public static class JetskiIceGallery
     const string Key = "JetskiIceGallery.";
     static readonly (float d, string action)[] Steps =
     {
-        (-1700, "shot:tropics"), (-1000, "shot:harbor"), (-70, "shot:approach_far"), (-38, "shot:approach"), (-24, "shot:gate_near"), (-12, "shot:gate_inside"),
+        (-1730, "shot:trop_kiz"), (-1510, "shot:trop_yum"), (-930, "shot:harbor_kiz"), (-710, "shot:harbor_yum"), (-520, "shot:harbor_kiz2"), (-320, "shot:harbor_yum2"), (-70, "shot:approach_far"), (-38, "shot:approach"), (-24, "shot:gate_near"), (-12, "shot:gate_inside"),
         (20, "shot:tunnel_a"), (90, "shot:tunnel_b"), (160, "shot:tunnel_c"),
         (200, "floe"), (0, "wait"), (280, "banner"), (0, "wait"), (360, "single"), (0, "wait"),
         (840, "shot:exit_near"), (876, "shot:exit_gate"), (905, "shot:after_exit"),
@@ -45,7 +45,7 @@ public static class JetskiIceGallery
         if (!rt) { rt = new RenderTexture(576, 1024, 24); cam.targetTexture = rt; JetskiRunnerGame.TestInvulnerable = true; }
         float zone = game.BiomeLength * 2f, d = game.DistanceTravelled - zone;
         // fast forward to just before the cave, then normal speed for clean shots
-        Time.timeScale = d < -90f ? 5f : 1.5f;
+        Time.timeScale = d < -90f ? 2.5f : 1.5f;
         if (pending != null && d >= shootAt) { Save(cam, pending); pending = null; step++; }
         if (pending != null || step >= Steps.Length)
         {

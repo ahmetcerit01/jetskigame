@@ -392,6 +392,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         ApplyAtmosphere();
         FollowCamera();
         UpdateExtras(speed);
+        SpawnLandmarksUpTo(distanceTravelled + ShoreAhead);
         SpawnShoreUpTo(distanceTravelled + ShoreAhead);
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
         RecycleWater();
@@ -857,11 +858,57 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     {
         scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,pirateShipPrefab,BiomeCount,shoreModels);
         scenery.BuildBackdrop();
+        SpawnLandmarksUpTo(ShoreAhead);
         SpawnShoreUpTo(ShoreAhead);
         SpawnCaveUpTo(ShoreAhead);
     }
 
     const float ShoreAhead=190f;
+
+    // Historic castles alternate along the coast of every open-water biome except the volcano, swapping sides as they go.
+    // clearBefore/clearAfter: shore-free stretch on that side, so palms do not hide the castle on the approach.
+    static readonly (string model,float inset,float clearBefore,float clearAfter,Vector3 scale)[] Landmarks=
+    {
+        ("35-kiz-kalesi",31f,75f,30f,new Vector3(1.15f,1.45f,1.15f)),
+        ("36-yumurtalik-kalesi",18f,60f,22f,new Vector3(1.25f,1.25f,1.25f)),
+    };
+    const float LandmarkFirst=140f,LandmarkStep=200f;
+    int nextLandmark;
+
+    static int LandmarkSide(int slot)=>((slot+1)/2)%2==0?1:-1;
+    static bool LandmarkBiome(EnvironmentPreset b)=>b==EnvironmentPreset.TropicalRun||b==EnvironmentPreset.PirateCove||b==EnvironmentPreset.Storm;
+    bool LandmarkAt(int slot)
+    {
+        float z=LandmarkFirst+slot*LandmarkStep;
+        return slot>=0 && LandmarkBiome(BiomeAt(z-60f)) && LandmarkBiome(BiomeAt(z+40f));   // keeps clear of the cave gate and the lava coast
+    }
+
+    // Keeps shore chunks from growing through or in front of a castle.
+    bool ShoreReserved(int side,float z)
+    {
+        int near=Mathf.FloorToInt((z-LandmarkFirst)/LandmarkStep);
+        for(int slot=near;slot<=near+1;slot++)
+        {
+            if(!LandmarkAt(slot)||LandmarkSide(slot)!=side) continue;
+            var l=Landmarks[slot%Landmarks.Length];
+            float at=LandmarkFirst+slot*LandmarkStep;
+            if(z>at-l.clearBefore && z<at+l.clearAfter) return true;
+        }
+        return false;
+    }
+
+    void SpawnLandmarksUpTo(float limit)
+    {
+        if(scenery==null) return;
+        for(;LandmarkFirst+nextLandmark*LandmarkStep<=limit;nextLandmark++)
+        {
+            if(!LandmarkAt(nextLandmark)) continue;
+            var l=Landmarks[nextLandmark%Landmarks.Length];
+            var castle=scenery.SpawnLandmark(movingWorld,l.model,LandmarkSide(nextLandmark),l.inset,LandmarkFirst+nextLandmark*LandmarkStep,l.scale);
+            if(castle) spawned.Add(castle);
+        }
+    }
+
     // Shore chunks take the biome of the spot they spawn at, so the next biome is visible ahead before the player arrives.
     void SpawnShoreUpTo(float limit)
     {
@@ -870,6 +917,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             while(nextShoreAt[s]<limit)
             {
                 var biome=BiomeAt(nextShoreAt[s]);
+                if(ShoreReserved(s==0?-1:1,nextShoreAt[s])){ nextShoreAt[s]+=Random.Range(17f,27f); continue; }
                 var chunk=scenery.SpawnShore(movingWorld,s==0?-1:1,nextShoreAt[s],(int)biome,BiomeNames[(int)biome]);
                 if(chunk) spawned.Add(chunk);
                 nextShoreAt[s]+=Random.Range(17f,27f);

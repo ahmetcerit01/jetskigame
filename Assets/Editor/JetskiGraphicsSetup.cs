@@ -106,6 +106,7 @@ public static class JetskiGraphicsSetup
             mat.SetTexture("_MainTex", color); mat.SetTexture("_BumpMap", normal); mat.EnableKeyword("_NORMALMAP");
             bool ice = name.Contains("ice") || name.Contains("icicle") || name.Contains("glacier");
             mat.SetFloat("_Glossiness", ice ? .55f : .15f); mat.SetFloat("_Metallic", 0f); mat.enableInstancing = true;
+            mat.SetColor("_Color", name.Contains("kalesi") ? new Color(.84f, .76f, .64f) : Color.white);   // pale stone blows out in the tropical sun
             if (name.Contains("crystals"))
             {
                 mat.EnableKeyword("_EMISSION"); mat.SetTexture("_EmissionMap", color); mat.SetColor("_EmissionColor", new Color(.75f, .75f, .75f));

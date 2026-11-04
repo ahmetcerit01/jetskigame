@@ -60,7 +60,7 @@ public sealed class TropicalScenery
             for (int i = 0; i < 3; i++) { templates[0].Add(BuildPalmCove(i)); templates[0].Add(BuildPalmGrove(i)); }
             templates[0].Add(BuildCoastCliff(0)); templates[0].Add(BuildCoastCliff(1));
             templates[0].Add(BuildCliffCorner()); templates[0].Add(BuildRockArch()); templates[0].Add(BuildBoulders());
-            templates[0].Add(BuildDock(false)); templates[0].Add(BuildSileLighthouse());
+            templates[0].Add(BuildSileLighthouse());
         }
         else
         {
@@ -68,17 +68,22 @@ public sealed class TropicalScenery
             templates[0].Add(BuildDock(false)); templates[0].Add(BuildCliff(0)); templates[0].Add(BuildCliff(1));
         }
         // 1 Pirate harbor
-        templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower());
         if (shipPrefab) templates[1].Add(BuildShipwreck());
-        if (models.Count > 0) { templates[1].Add(BuildPirateBeach()); templates[1].Add(BuildPirateCamp()); templates[1].Add(BuildCoastCliff(2)); }
-        else templates[1].Add(BuildCliff(0));
+        if (models.Count > 0)
+        {
+            // Meshy chunks only: the castles from JetskiRunnerGame.Landmarks take the place of the old primitive piers and tower
+            templates[1].Add(BuildPirateBeach()); templates[1].Add(BuildPirateCamp()); templates[1].Add(BuildCoastCliff(2));
+            templates[1].Add(BuildBoulders()); templates[1].Add(BuildRockArch());
+        }
+        else { templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower()); templates[1].Add(BuildCliff(0)); }
         // 2 Cave passage: walls come from the tunnel segments, no shore chunks.
         // 3 Volcanic zone
         templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaCone(0));
         templates[3].Add(BuildLavaCone(1)); templates[3].Add(BuildAshIsland());
         // 4 Storm
         templates[4].Add(BuildStormCliff(0)); templates[4].Add(BuildStormCliff(1)); templates[4].Add(models.Count > 0 ? BuildSileLighthouse() : BuildLighthouse());
-        templates[4].Add(BuildPalmIsland(1, true)); templates[4].Add(BuildPalmIsland(2, true));
+        if (models.Count > 0) { templates[4].Add(BuildBoulders()); templates[4].Add(BuildCoastCliff(1)); }
+        else { templates[4].Add(BuildPalmIsland(1, true)); templates[4].Add(BuildPalmIsland(2, true)); }
     }
 
     static Material Glow(Material m, Color emission)
@@ -150,6 +155,18 @@ public sealed class TropicalScenery
         }
         Solid("Glacier crown", FacetedHill(10f, 9f, 10, 3, 320), glacier, root).transform.localPosition = new Vector3(0, 6.2f, dir * 7f);
         return root.gameObject;
+    }
+
+    // A castle beside the lanes, turned so its main face looks at the approaching player. Never mirrored: that would flip its flag.
+    public GameObject SpawnLandmark(Transform parent, string name, int side, float inset, float z, Vector3 scale)
+    {
+        if (!models.TryGetValue(name, out var prefab)) return null;
+        var go = Object.Instantiate(prefab, parent);
+        go.name = "Landmark | " + name;
+        go.transform.localPosition = new Vector3(side * inset, -.42f, z);
+        go.transform.localRotation = Quaternion.Euler(0, side > 0 ? 250f : 110f, 0);
+        go.transform.localScale = scale;
+        return go;
     }
 
     const string GateModel = "28-ice-tunnel-entrance";
