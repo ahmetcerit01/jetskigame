@@ -1,0 +1,12 @@
+{
+ "style": "Stylized vibrant tropical pirate mobile game art, chunky rounded beveled forms, simplified hand-painted surfaces, isolated single asset, three-quarter view, full object visible with generous margin, plain light gray background, soft neutral studio lighting, subtle contact shadow, no scene, no water, no text, no UI, no collage.",
+ "assets": [
+  {"name":"28-ice-tunnel-entrance","aspect":"4:3","prompt":"One massive glacier gateway, a thick arched ice cave entrance carved through a chunky block of blue glacier ice, a wide open passage straight through it with a clearly hollow dark blue interior, faceted pale blue and white ice, snow capped top, short icicles hanging along the arch, flat bottom."},
+  {"name":"29-icicle-cluster","aspect":"1:1","prompt":"One cluster of seven hanging ice stalactites of different lengths, joined at a flat icy top base, thick chunky tapered icicles pointing straight down, translucent pale cyan with deep blue core."},
+  {"name":"30-icicle-curtain","aspect":"16:9","prompt":"One wide horizontal curtain of hanging icicles, a long flat ice ledge along the top with a row of many chunky tapered icicles pointing straight down, lengths varying, pale cyan and white with blue shadows."},
+  {"name":"31-ice-stalagmites","aspect":"1:1","prompt":"One group of three ice stalagmites rising from a flat icy base, thick chunky tapered spikes pointing straight up, different heights, faceted pale blue ice with white highlights."},
+  {"name":"32-ice-crystals","aspect":"1:1","prompt":"One cluster of large faceted ice crystals growing from a flat base, six chunky hexagonal crystal shards angled outwards, glowing cyan interior with pale edges."},
+  {"name":"33-ice-floe","aspect":"4:3","prompt":"One floating ice floe, a chunky irregular flat slab of glacier ice with stepped broken edges, snow dusted top, pale blue and white, flat bottom."},
+  {"name":"34-glacier-mountain","aspect":"4:3","prompt":"One huge jagged glacier mountain, chunky faceted planes of blue ice with snow on the ridges, broad flat base, tall asymmetrical silhouette."}
+ ]
+}

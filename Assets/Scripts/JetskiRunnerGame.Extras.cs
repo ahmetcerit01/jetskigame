@@ -463,7 +463,16 @@ public sealed partial class JetskiRunnerGame
         for (int s = -1; s <= 1; s += 2)
             Part(go, PrimitiveType.Cylinder, new Vector3(s * width * .5f, 1.4f, 0), new Vector3(.16f, 1.45f, .16f), cave ? ice : bark);
         Part(go, PrimitiveType.Cube, new Vector3(0, 2.8f, 0), new Vector3(width + .3f, .16f, .16f), cave ? ice : bark);
-        if (cave)
+        var icicles = cave && scenery != null ? scenery.Model(allLanes ? "30-icicle-curtain" : "29-icicle-cluster") : null;
+        if (icicles)
+        {
+            // squashed so the tips stop at the top of the duck gap: ducking must visibly clear them
+            var m = Instantiate(icicles, go.transform);
+            float h = allLanes ? 4.7f : 5f, sx = (allLanes ? width / 12f : width / 3.6f), sy = 1.45f / h;
+            m.transform.localPosition = new Vector3(0, 2.9f - h * sy, 0);
+            m.transform.localScale = new Vector3(sx, sy, allLanes ? .5f : sx);
+        }
+        else if (cave)
         {
             int count = Mathf.RoundToInt(width / .3f);
             for (int i = 0; i < count; i++)
@@ -500,7 +509,15 @@ public sealed partial class JetskiRunnerGame
     void CreateIceFloe(int laneIndex, float z)
     {
         var go = Root("Drifting ice floe", laneIndex, z, TriggerKind.Obstacle);
-        for (int i = 0; i < 3; i++)
+        var floe = scenery != null ? scenery.Model("33-ice-floe") : null;
+        if (floe)
+        {
+            var m = Instantiate(floe, go.transform);
+            m.transform.localPosition = new Vector3(0, -.15f, 0);
+            m.transform.localRotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
+            m.transform.localScale = new Vector3(.75f, 2.2f, .75f);   // thicker than the flat source, so it reads as something to dodge
+        }
+        else for (int i = 0; i < 3; i++)
             Part(go, PrimitiveType.Cube, new Vector3(Random.Range(-.35f, .35f), .1f + i * .12f, Random.Range(-.3f, .3f)),
                  new Vector3(Random.Range(.9f, 1.4f), .5f - i * .1f, Random.Range(.8f, 1.2f)), ice, new Vector3(Random.Range(-8, 8), Random.Range(0, 90), Random.Range(-8, 8)));
         TriggerBox(go, new Vector3(0, .3f, 0), new Vector3(1.3f, .9f, 1.1f));

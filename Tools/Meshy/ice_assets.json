@@ -1,0 +1,9 @@
+[
+ {"id":28,"name":"28-ice-tunnel-entrance","fit":"width","size":44.0,"faces":14000},
+ {"id":29,"name":"29-icicle-cluster","fit":"height","size":5.0,"faces":5000},
+ {"id":30,"name":"30-icicle-curtain","fit":"width","size":12.0,"faces":8000},
+ {"id":31,"name":"31-ice-stalagmites","fit":"height","size":6.0,"faces":5000},
+ {"id":32,"name":"32-ice-crystals","fit":"height","size":4.0,"faces":5000},
+ {"id":33,"name":"33-ice-floe","fit":"width","size":2.4,"faces":3000},
+ {"id":34,"name":"34-glacier-mountain","fit":"height","size":30.0,"faces":14000}
+]

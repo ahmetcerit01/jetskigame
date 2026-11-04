@@ -7,6 +7,7 @@ public sealed class TropicalScenery
 {
     readonly System.Func<string, Color, float, float, Material> make;
     readonly GameObject rockPrefab, barrelPrefab, shipPrefab;
+    readonly Dictionary<string, GameObject> models = new();
     readonly Material sand, grass, grassDark, trunk, frond, frondDark, coconut, cliff, mountain, cloud, plank, crate, flag;
     readonly Material stone, flagBlack, basalt, lava, ash, charred, stormRock, stormGrass, stormFrond, lighthouseWhite, lighthouseRed, lamp, glacier;
     readonly Mesh frondMesh, trunkMesh;
@@ -15,8 +16,9 @@ public sealed class TropicalScenery
     Transform volcano;
     readonly Color cloudEmission = new(.5f, .52f, .55f);
 
-    public TropicalScenery(System.Func<string, Color, float, float, Material> make, GameObject rockPrefab, GameObject barrelPrefab, GameObject shipPrefab, int biomeCount)
+    public TropicalScenery(System.Func<string, Color, float, float, Material> make, GameObject rockPrefab, GameObject barrelPrefab, GameObject shipPrefab, int biomeCount, GameObject[] shoreModels = null)
     {
+        if (shoreModels != null) foreach (var m in shoreModels) if (m) models[m.name] = m;
         this.make = make; this.rockPrefab = rockPrefab; this.barrelPrefab = barrelPrefab; this.shipPrefab = shipPrefab;
         sand = make("Beach sand", new Color(.84f, .74f, .53f), 0, .1f);
         grass = make("Island grass", new Color(.29f, .52f, .21f), 0, .15f);
@@ -53,18 +55,29 @@ public sealed class TropicalScenery
         templates = new List<GameObject>[biomeCount];
         for (int i = 0; i < biomeCount; i++) templates[i] = new List<GameObject>();
         // 0 Tropical island
-        for (int i = 0; i < 3; i++) templates[0].Add(BuildPalmIsland(i, false));
-        templates[0].Add(BuildDock(false)); templates[0].Add(BuildCliff(0)); templates[0].Add(BuildCliff(1));
+        if (models.Count > 0)
+        {
+            for (int i = 0; i < 3; i++) { templates[0].Add(BuildPalmCove(i)); templates[0].Add(BuildPalmGrove(i)); }
+            templates[0].Add(BuildCoastCliff(0)); templates[0].Add(BuildCoastCliff(1));
+            templates[0].Add(BuildCliffCorner()); templates[0].Add(BuildRockArch()); templates[0].Add(BuildBoulders());
+            templates[0].Add(BuildDock(false)); templates[0].Add(BuildSileLighthouse());
+        }
+        else
+        {
+            for (int i = 0; i < 3; i++) templates[0].Add(BuildPalmIsland(i, false));
+            templates[0].Add(BuildDock(false)); templates[0].Add(BuildCliff(0)); templates[0].Add(BuildCliff(1));
+        }
         // 1 Pirate harbor
         templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower());
         if (shipPrefab) templates[1].Add(BuildShipwreck());
-        templates[1].Add(BuildCliff(0));
+        if (models.Count > 0) { templates[1].Add(BuildPirateBeach()); templates[1].Add(BuildPirateCamp()); templates[1].Add(BuildCoastCliff(2)); }
+        else templates[1].Add(BuildCliff(0));
         // 2 Cave passage: walls come from the tunnel segments, no shore chunks.
         // 3 Volcanic zone
         templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaCone(0));
         templates[3].Add(BuildLavaCone(1)); templates[3].Add(BuildAshIsland());
         // 4 Storm
-        templates[4].Add(BuildStormCliff(0)); templates[4].Add(BuildStormCliff(1)); templates[4].Add(BuildLighthouse());
+        templates[4].Add(BuildStormCliff(0)); templates[4].Add(BuildStormCliff(1)); templates[4].Add(models.Count > 0 ? BuildSileLighthouse() : BuildLighthouse());
         templates[4].Add(BuildPalmIsland(1, true)); templates[4].Add(BuildPalmIsland(2, true));
     }
 
@@ -74,6 +87,9 @@ public sealed class TropicalScenery
         return m;
     }
 
+    const float LighthouseSpacing = 180f;
+    float lastLighthouseZ = -LighthouseSpacing;
+
     // Shore chunk for one side (-1 left, +1 right); authored for the right side and mirrored for the left.
     // Returns null for biomes without shore chunks.
     public GameObject SpawnShore(Transform parent, int side, float z, int biome, string biomeName)
@@ -81,27 +97,86 @@ public sealed class TropicalScenery
         var set = templates[biome];
         if (set.Count == 0) return null;
         var template = set[Random.Range(0, set.Count)];
+        // a landmark has to stay rare: never within sight of the previous lighthouse
+        if (template.name == "Sile lighthouse")
+        {
+            if (z - lastLighthouseZ < LighthouseSpacing) { while (template.name == "Sile lighthouse" && set.Count > 1) template = set[Random.Range(0, set.Count)]; }
+            else lastLighthouseZ = z;
+        }
         var chunk = Object.Instantiate(template, parent);
         chunk.name = "Shore | " + biomeName + " | " + template.name;
         chunk.transform.localPosition = new Vector3(side * Random.Range(9.5f, 12f), -.42f, z);
-        chunk.transform.localRotation = Quaternion.Euler(0, side < 0 ? 180 : 0, 0);
-        chunk.transform.localScale = Vector3.one * Random.Range(.9f, 1.15f);
+        // mirrored rather than turned round, so what faces the lanes and the camera on the right does on the left too
+        float scale = Random.Range(.9f, 1.15f);
+        chunk.transform.localRotation = Quaternion.identity;
+        chunk.transform.localScale = new Vector3(side < 0 ? -scale : scale, scale, scale);
         return chunk;
     }
 
-    // Glacier mountain the cave tunnel cuts through; placed at the entrance and exit of every cave passage.
+    public GameObject Model(string name) => models.TryGetValue(name, out var m) ? m : null;
+
+    GameObject IceProp(string name, Transform parent, Vector3 pos, float yaw, float scale)
+    {
+        if (!models.TryGetValue(name, out var prefab)) return null;
+        var go = Object.Instantiate(prefab, parent);
+        go.transform.localPosition = pos; go.transform.localRotation = Quaternion.Euler(0, yaw, 0); go.transform.localScale = Vector3.one * scale;
+        foreach (var r in go.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        return go;
+    }
+
+    // Glacier the cave tunnel cuts through; placed at the entrance and exit of every cave passage.
     public GameObject SpawnGlacierMouth(Transform parent, float z, bool entrance)
     {
         var root = new GameObject(entrance ? "Cave passage | glacier entrance" : "Cave passage | glacier exit").transform;
         root.SetParent(parent, false);
         root.localPosition = new Vector3(0, -.42f, z);
         float dir = entrance ? 1 : -1;
+        if (models.ContainsKey(GateModel))
+        {
+            // the gate's passage runs along the model's X axis; its body hides the open end of the tunnel behind it
+            IceProp(GateModel, root, new Vector3(0, -GateSink, -dir * GateSetback), 90f, GateScale);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                IceProp("34-glacier-mountain", root, new Vector3(side * 25f, -1f, -dir * 3f), side * 70f, .95f);
+                IceProp("31-ice-stalagmites", root, new Vector3(side * 13.5f, -.2f, -dir * 17f), side * 40f, 1.1f);
+                IceProp("32-ice-crystals", root, new Vector3(side * 9.5f, -.2f, -dir * 22f), side * 120f, .8f);
+            }
+            return root.gameObject;
+        }
         for (int side = -1; side <= 1; side += 2)
         {
             Solid("Glacier flank", FacetedHill(8f, 17f, 9, 4, 300 + side), glacier, root).transform.localPosition = new Vector3(side * 12.5f, -.5f, dir * 6f);
             Solid("Glacier shoulder", FacetedHill(6f, 11f, 8, 3, 310 + side), glacier, root).transform.localPosition = new Vector3(side * 9.5f, -.5f, dir * 1.5f);
         }
         Solid("Glacier crown", FacetedHill(10f, 9f, 10, 3, 320), glacier, root).transform.localPosition = new Vector3(0, 6.2f, dir * 7f);
+        return root.gameObject;
+    }
+
+    const string GateModel = "28-ice-tunnel-entrance";
+    const float GateScale = .45f, GateSink = 3f, GateSetback = 6f;
+    const float TunnelHalfWidth = 10.5f, TunnelHeight = 10f, CeilingInset = .84f;   // inset: the wall plates hang well inside the ideal arch
+    static float TunnelCeiling(float x) => TunnelHeight * Mathf.Sqrt(Mathf.Max(0f, 1f - x * x / (TunnelHalfWidth * TunnelHalfWidth)));
+
+    // Sarkit and dikit dressing for one tunnel segment. Everything stays outside the lanes and above jump height;
+    // the root sits at the segment's far end, so it is cleaned up together with the segment.
+    public GameObject SpawnTunnelDecor(Transform parent, float y, float start, float length)
+    {
+        if (!models.ContainsKey("29-icicle-cluster")) return null;
+        var root = new GameObject("Cave passage | ice decor").transform;
+        root.SetParent(parent, false);
+        root.localPosition = new Vector3(0, y, start + length);
+        float At(float t) => -length * t;                  // local z of a spot t (0..1) along the segment, measured back from the far end
+        float side = Random.value < .5f ? -1 : 1;
+        for (int i = 0; i < 3; i++, side = -side)
+        {
+            float x = side * Random.Range(3.6f, 6f), top = TunnelCeiling(x) * CeilingInset;
+            float scale = Mathf.Min(Random.Range(.6f, 1.1f), (top - 3.8f) / 5f);   // tips stay above a jumping rider
+            IceProp("29-icicle-cluster", root, new Vector3(x, top - 5f * scale, At((i + Random.Range(.15f, .85f)) / 3f)), Random.Range(0f, 360f), scale);
+        }
+        float wall = side * 5.5f, curtainTop = TunnelCeiling(wall) * CeilingInset, curtainScale = Random.Range(.6f, .75f);
+        IceProp("30-icicle-curtain", root, new Vector3(wall, curtainTop - 4.7f * curtainScale, At(Random.Range(.3f, .7f))), 90f, curtainScale);
+        IceProp("31-ice-stalagmites", root, new Vector3(side * Random.Range(6.8f, 8f), -.25f, At(Random.Range(.1f, .45f))), Random.Range(0f, 360f), Random.Range(.55f, .9f));
+        IceProp("32-ice-crystals", root, new Vector3(-side * Random.Range(6.8f, 8f), -.2f, At(Random.Range(.55f, .9f))), Random.Range(0f, 360f), Random.Range(.7f, 1.1f));
         return root.gameObject;
     }
 
@@ -316,6 +391,222 @@ public sealed class TropicalScenery
             rock.transform.localScale = Vector3.one * 1.4f;
         }
         return root;
+    }
+
+    // ---------- shore pieces built from the Meshy models (authored for the right side: lanes at -x, camera at -z) ----------
+    // Nothing here guesses a height: the real surface of the ground models is rasterised into a grid, and every prop
+    // is seated on it by the point where its own base meets the ground (a leaning palm's trunk is off its pivot).
+
+    sealed class GroundGrid
+    {
+        const float Cell = .2f;
+        readonly Dictionary<long, float> top = new();
+        static long Key(int x, int z) => ((long)x << 32) ^ (uint)z;
+
+        public void Add(Transform model, Transform chunk)
+        {
+            foreach (var mf in model.GetComponentsInChildren<MeshFilter>(true))
+            {
+                var mesh = mf.sharedMesh;
+                if (!mesh || !mesh.isReadable) { Debug.LogError("Shore ground mesh not readable: " + model.name); continue; }
+                var toChunk = chunk.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+                var v = mesh.vertices; var tris = mesh.triangles;
+                for (int i = 0; i < v.Length; i++) v[i] = toChunk.MultiplyPoint3x4(v[i]);
+                for (int i = 0; i < tris.Length; i += 3) Raster(v[tris[i]], v[tris[i + 1]], v[tris[i + 2]]);
+            }
+        }
+
+        void Raster(Vector3 a, Vector3 b, Vector3 c)
+        {
+            float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+            if (Mathf.Abs(area) < 1e-6f) return;
+            int x0 = Mathf.FloorToInt(Mathf.Min(a.x, b.x, c.x) / Cell), x1 = Mathf.CeilToInt(Mathf.Max(a.x, b.x, c.x) / Cell);
+            int z0 = Mathf.FloorToInt(Mathf.Min(a.z, b.z, c.z) / Cell), z1 = Mathf.CeilToInt(Mathf.Max(a.z, b.z, c.z) / Cell);
+            for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++)
+            {
+                float px = x * Cell, pz = z * Cell;
+                float u = ((b.x - px) * (c.z - pz) - (c.x - px) * (b.z - pz)) / area, w = ((c.x - px) * (a.z - pz) - (a.x - px) * (c.z - pz)) / area, t = 1f - u - w;
+                if (u < -.02f || w < -.02f || t < -.02f) continue;
+                float y = u * a.y + w * b.y + t * c.y;
+                long key = Key(x, z);
+                if (!top.TryGetValue(key, out var old) || y > old) top[key] = y;
+            }
+        }
+
+        public bool Height(float x, float z, out float y) => top.TryGetValue(Key(Mathf.RoundToInt(x / Cell), Mathf.RoundToInt(z / Cell)), out y);
+    }
+
+    // Where a model meets the ground, in its own space: centre and radius of its lowest vertices.
+    readonly Dictionary<string, (Vector3 anchor, float radius)> footprints = new();
+    (Vector3 anchor, float radius) Footprint(GameObject prefab)
+    {
+        if (footprints.TryGetValue(prefab.name, out var known)) return known;
+        var pts = new List<Vector3>();
+        float low = float.MaxValue, high = float.MinValue;
+        foreach (var mf in prefab.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (!mf.sharedMesh || !mf.sharedMesh.isReadable) continue;
+            var m = prefab.transform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            foreach (var v in mf.sharedMesh.vertices) { var p = m.MultiplyPoint3x4(v); pts.Add(p); low = Mathf.Min(low, p.y); high = Mathf.Max(high, p.y); }
+        }
+        var centre = Vector3.zero; int n = 0; float cut = low + (high - low) * .05f;
+        foreach (var p in pts) if (p.y <= cut) { centre += p; n++; }
+        if (n > 0) centre /= n;
+        centre.y = low;
+        float radius = 0f;
+        foreach (var p in pts) if (p.y <= cut) radius = Mathf.Max(radius, new Vector2(p.x - centre.x, p.z - centre.z).magnitude);
+        return footprints[prefab.name] = (centre, radius);
+    }
+
+    // One chunk being assembled: ground models feed the grid, props are seated on it and keep clear of each other.
+    sealed class Plot
+    {
+        public GameObject root; public GroundGrid grid = new(); public List<Vector3> taken = new();
+        public Transform T => root.transform;
+    }
+
+    Plot NewPlot(string name) => new() { root = Chunk(name) };
+
+    void Ground(Plot plot, string name, float x, float z, float yaw, float scale, float y)
+    {
+        if (!models.TryGetValue(name, out var prefab)) return;
+        var t = Object.Instantiate(prefab, plot.T).transform;
+        t.localPosition = new Vector3(x, y, z); t.localRotation = Quaternion.Euler(0, yaw, 0); t.localScale = Vector3.one * scale;
+        plot.grid.Add(t, plot.T);
+    }
+
+    // Seats a prop with its base at (x, z). Returns false, placing nothing, if that spot is not ground or is too steep.
+    bool Place(Plot plot, string name, float x, float z, float yaw = 215f, float scale = 1f, float maxSlope = .55f, bool castShadow = true)
+    {
+        if (!models.TryGetValue(name, out var prefab)) return false;
+        var (anchor, radius) = Footprint(prefab);
+        float r = radius * scale * .7f, lowest = float.MaxValue, highest = float.MinValue;
+        for (int i = 0; i < 9; i++)
+        {
+            float a = i * Mathf.PI / 4f, px = i == 8 ? x : x + Mathf.Cos(a) * r, pz = i == 8 ? z : z + Mathf.Sin(a) * r;
+            if (!plot.grid.Height(px, pz, out var h)) return false;
+            lowest = Mathf.Min(lowest, h); highest = Mathf.Max(highest, h);
+        }
+        if (highest - lowest > maxSlope + r * .35f || lowest < .12f) return false;
+        var rot = Quaternion.Euler(0, yaw, 0);
+        var offset = rot * (anchor * scale);
+        var t = Object.Instantiate(prefab, plot.T).transform;
+        // seated on the lowest point under the base, slightly embedded so no gap shows on uneven ground
+        t.localPosition = new Vector3(x - offset.x, lowest - offset.y - .04f, z - offset.z);
+        t.localRotation = rot; t.localScale = Vector3.one * scale;
+        if (!castShadow) foreach (var mr in t.GetComponentsInChildren<Renderer>()) mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        plot.taken.Add(new Vector3(x, z, Mathf.Max(radius * scale, .2f)));
+        return true;
+    }
+
+    static float Density => QualitySettings.GetQualityLevel() >= 3 ? 1f : .5f;   // thinner on low-end settings
+
+    // Dense planting over everything that is walkable in the rectangle: palms first, then bushes, then grass in the gaps.
+    void Plant(Plot plot, int seed, Rect area, int palms, int bushes, int leaves, int grass)
+    {
+        var rng = new System.Random(seed);
+        float R(float a, float b) => a + (float)rng.NextDouble() * (b - a);
+        void Fill(string[] names, int count, float minScale, float maxScale, float gap, bool shadow)
+        {
+            count = Mathf.RoundToInt(count * Density);
+            for (int tries = 0, placed = 0; tries < count * 14 && placed < count; tries++)
+            {
+                float x = R(area.xMin, area.xMax), z = R(area.yMin, area.yMax), scale = R(minScale, maxScale);
+                bool clear = true;
+                foreach (var o in plot.taken) if (new Vector2(x - o.x, z - o.y).magnitude < o.z + gap) { clear = false; break; }
+                if (clear && Place(plot, names[rng.Next(names.Length)], x, z, R(0f, 360f), scale, .45f, shadow)) placed++;
+            }
+        }
+        Fill(new[] { "01-palm-tall", "02-palm-short", "03-palm-double" }, palms, .7f, 1.05f, 1.6f, true);
+        Fill(new[] { "04-tropical-shrub" }, bushes, 1f, 1.6f, .35f, true);
+        Fill(new[] { "05-broadleaf-plant" }, leaves, 1f, 1.7f, .3f, true);
+        Fill(new[] { "06-grass-clump" }, grass, 1.3f, 2.4f, .05f, false);
+    }
+
+    const float TileY = -1.5f;      // the sandy tile's thick base sits under the water
+
+    GameObject BuildPalmCove(int seed)
+    {
+        var p = NewPlot("Palm cove");
+        Ground(p, "14-sandy-shore", 4f, 0f, seed * 53f, 1.15f, TileY);
+        Place(p, "01-palm-tall", 5.5f, 1.5f, 200f); Place(p, "25-seashell", -.9f, -3.2f, 215f, 1.8f); Place(p, "26-starfish", .4f, -3.8f, 40f, 1.8f);
+        Plant(p, seed, new Rect(-1.8f, -6f, 12f, 12f), 3, 5, 7, 18);
+        return p.root;
+    }
+
+    GameObject BuildPalmGrove(int seed)
+    {
+        var p = NewPlot("Palm grove");
+        Ground(p, "14-sandy-shore", 5f, 0f, 120f + seed * 37f, 1.2f, TileY);
+        Place(p, "03-palm-double", 5f, 1f, 190f, 1.05f); Place(p, "10-rock-cluster", 1.8f, 3.4f, 215f, .6f, 1f);
+        Plant(p, seed + 11, new Rect(-1.2f, -6.5f, 13f, 13f), 4, 6, 7, 20);
+        return p.root;
+    }
+
+    GameObject BuildCoastCliff(int seed)
+    {
+        var p = NewPlot("Coast cliff");
+        Ground(p, "11-cliff-straight", 3.5f, 0f, 270f, 1.25f, -.6f);
+        Plant(p, seed + 23, new Rect(.6f, -7.5f, 6f, 15f), 3, 5, 6, 14);
+        Ground(p, "08-rock-medium", -.5f, -3.4f, 215f, .9f, -.5f); Ground(p, "07-rock-small", -.9f, 3f, 80f, 1.2f, -.3f);
+        return p.root;
+    }
+
+    GameObject BuildCliffCorner()
+    {
+        var p = NewPlot("Cliff corner");
+        Ground(p, "12-cliff-corner", 5f, 0f, 215f, 1.1f, -.6f);
+        Plant(p, 41, new Rect(.2f, -5f, 10f, 10f), 2, 3, 4, 8);
+        Ground(p, "07-rock-small", -.8f, -3f, 300f, 1.4f, -.3f);
+        return p.root;
+    }
+
+    GameObject BuildRockArch()
+    {
+        var p = NewPlot("Rock arch");
+        Ground(p, "13-rock-arch", 8f, 0f, 195f, .62f, -.6f);
+        Plant(p, 53, new Rect(0f, -6f, 16f, 12f), 1, 5, 4, 8);
+        return p.root;
+    }
+
+    GameObject BuildBoulders()
+    {
+        var p = NewPlot("Boulders");
+        Ground(p, "09-rock-large", 3f, 1f, 215f, 1.2f, -.6f); Ground(p, "10-rock-cluster", -.2f, -3f, 240f, .85f, -.5f); Ground(p, "08-rock-medium", 5.5f, -3.5f, 160f, 1f, -.5f);
+        Plant(p, 61, new Rect(-3f, -6f, 11f, 11f), 0, 4, 4, 8);
+        return p.root;
+    }
+
+    GameObject BuildPirateBeach()
+    {
+        var p = NewPlot("Pirate beach");
+        Ground(p, "14-sandy-shore", 4.5f, 0f, 0f, 1.2f, TileY);
+        Place(p, "22-pirate-banner", 5.8f, 2.4f, 240f, .85f, 1f);
+        Place(p, "24-treasure-chest", .6f, -1.4f, 225f, 1.25f, 1f); Place(p, "23-lantern-post", 1.6f, -4f, 250f, 1f);
+        Place(p, "15-crate", 1.8f, 3f, 200f, 1.15f); Place(p, "16-barrel-closed", .3f, 2.2f, 215f, 1.05f); Place(p, "17-barrel-open", 3.3f, 4.2f, 215f, 1f); Place(p, "18-rope-coil", -.8f, .6f, 40f, 1.5f);
+        Plant(p, 71, new Rect(-1f, -6f, 12f, 12f), 2, 3, 5, 14);
+        return p.root;
+    }
+
+    GameObject BuildPirateCamp()
+    {
+        var p = NewPlot("Pirate camp");
+        Ground(p, "14-sandy-shore", 4.5f, 0f, 200f, 1.2f, TileY);
+        Place(p, "21-direction-sign", .2f, -1.2f, 235f, 1.1f); Place(p, "19-wood-fence", 1.3f, 2.8f, 270f, 1f, 1f); Place(p, "20-rope-fence", 1.5f, -4.4f, 270f, 1f, 1f);
+        Place(p, "23-lantern-post", 3.8f, -2f, 230f, 1f); Place(p, "15-crate", 4.2f, 3.6f, 195f, 1.1f);
+        Plant(p, 83, new Rect(-1f, -6f, 12f, 12f), 3, 3, 5, 14);
+        return p.root;
+    }
+
+    // The Sile lighthouse on its own green islet: tall enough to be spotted from far down the run.
+    GameObject BuildSileLighthouse()
+    {
+        var p = NewPlot("Sile lighthouse");
+        Ground(p, "14-sandy-shore", 5f, 0f, 60f, 1.3f, TileY);
+        Place(p, "27-sile-lighthouse", 6f, 1.5f, 215f, 1f, 1.2f);
+        Ground(p, "10-rock-cluster", -.6f, 3f, 215f, .7f, -.4f);
+        Plant(p, 97, new Rect(-1f, -7f, 13f, 14f), 3, 5, 6, 16);
+        return p.root;
     }
 
     GameObject BuildLighthouse()

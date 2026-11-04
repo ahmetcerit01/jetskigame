@@ -149,8 +149,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::JetskiRunnerGame
   environment: 0
-  biomeLength: 320
-  biomeBlend: 24
+  biomeLength: 900
+  biomeBlend: 70
   forwardSpeed: 12
   laneWidth: 2.9
   spawnAhead: 72
@@ -169,13 +169,48 @@ MonoBehaviour:
   shipLength: 8.5
   sideRockPrefab: {fileID: 4951482104945820229, guid: 98353ddf2ff47a748bcf426c9fc90fc1, type: 3}
   dockBarrelPrefab: {fileID: 3381627655719016453, guid: 0af3272f183cb8f4bbb809f42b94dd73, type: 3}
+  shoreModels:
+  - {fileID: 3626601316926637210, guid: 02dadfc1b70994eeba2110a0e739beb9, type: 3}
+  - {fileID: 8971251389165988507, guid: 2a93368fc23a749c1b0d48e3159fe27a, type: 3}
+  - {fileID: 1889872895124603845, guid: c5ceeaf1810374dc18df09d8fbae610f, type: 3}
+  - {fileID: 4176467681309955288, guid: 19b40995f867f4040a59ab5ff49e25a9, type: 3}
+  - {fileID: 7158336781458698934, guid: 0f2722877afeb4185bec29d96f7e5352, type: 3}
+  - {fileID: 4759070105707634283, guid: 4436c24c4babb464a97e3bbf772602f1, type: 3}
+  - {fileID: 6258078464172132781, guid: 3aeac81e724694342b6fa9f93f0fdef4, type: 3}
+  - {fileID: 6343075911849660114, guid: 63a243c57243e41d9a24f203d157d3b3, type: 3}
+  - {fileID: 4064278655928908081, guid: bdba6ab0496574f50a04660d0a894923, type: 3}
+  - {fileID: 3546264342734794788, guid: 029b79462c73e4a0cb98081a2b9552ec, type: 3}
+  - {fileID: 2680234587645466438, guid: e5a2750fd2caf43b7a6c8e553d4b67d8, type: 3}
+  - {fileID: 8637978091890759847, guid: e8409bb9c0b474b9fbf2afd842f3574b, type: 3}
+  - {fileID: 8768764610268925584, guid: de973e0b0b8f643739c19ffe3ac78fd2, type: 3}
+  - {fileID: 514398045019087566, guid: 036eef461756c41c5835b9764f19a7a6, type: 3}
+  - {fileID: 166315614376275600, guid: eb02a4d88e5bf4b128c0bbf3d6157d04, type: 3}
+  - {fileID: 544462792515824170, guid: c00fec9a78f9e4b15a4959ca94c2f823, type: 3}
+  - {fileID: 1845599035139896073, guid: f1c0bef689b8f412591df502c4efae54, type: 3}
+  - {fileID: 2125997852025590491, guid: 8fdcbcda1d15a46d49fc8c3eac12055a, type: 3}
+  - {fileID: 6961915190282160967, guid: 47f31bf7ad1964019936d76689d1150d, type: 3}
+  - {fileID: 4439823592673892949, guid: 001899daa059642b1b60f108415d9252, type: 3}
+  - {fileID: 6640717651549593025, guid: 9fd2be802f9dc49c290d69b73e4e21be, type: 3}
+  - {fileID: 514269483917842042, guid: a460db9bcf8e845d08013a1cfd533d88, type: 3}
+  - {fileID: 4009737550523845977, guid: f3b70ca350a9346f6bc49d597d7f3a2e, type: 3}
+  - {fileID: 3597701644289269328, guid: 167affc69e3824d979cc4d7e66af4ebd, type: 3}
+  - {fileID: 8246910119640397197, guid: 329d5c92cdcc14a379428baf021e83dc, type: 3}
+  - {fileID: 3864433035588983773, guid: 24195b468dbd34f2ba3fe4ca771cb204, type: 3}
+  - {fileID: 1444361867873135382, guid: ee14876428a754967948367caf862172, type: 3}
+  - {fileID: 557211375908476096, guid: a489c28843c96431cb7189bf39c2c2b5, type: 3}
+  - {fileID: 5132313508026528266, guid: da976bf938b71461d8b723116337c893, type: 3}
+  - {fileID: 8007462846536988288, guid: 0214fc3a1f2714622a544dcd377a1315, type: 3}
+  - {fileID: 2395103265140885184, guid: 70fe8986e026f4a37b1817fe2810bf49, type: 3}
+  - {fileID: 2566276552789555082, guid: 5dca31a5720dc472e978463b154598e2, type: 3}
+  - {fileID: 7039430036291564546, guid: 1873fc73035d74c5a982a7447251a2b4, type: 3}
+  - {fileID: 8054506838680295258, guid: f12c3271fc33240a6a8fb651fdb3b878, type: 3}
   skyShader: {fileID: 4800000, guid: 1d5c9ee08de69d74b992fd2ab34ea3c2, type: 3}
   sprayMaterial: {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
   postFxShader: {fileID: 4800000, guid: 8555615ac658c46c2acedb5a27b91575, type: 3}
   emissiveTemplate: {fileID: 2100000, guid: b38c16c1bfe7846868833cfbdf2e910f, type: 2}
   splashMaterial: {fileID: 2100000, guid: 5c0067b44718e479dacd1f3921648908, type: 2}
   foamRingMaterial: {fileID: 2100000, guid: 66d8aab2e7e3a4d93b4641eb71e17bf9, type: 2}
-  iceTunnelPrefab: {fileID: 5637465107768741935, guid: 705012caec18f504d888cae9878aec1e, type: 3}
+  iceTunnelPrefab: {fileID: 1721895745125508603, guid: 0fab89902366d43a4a815523bcc83187, type: 3}
   iceTunnelLength: 24
   boostMultiplier: 1.6
   boostDuration: 3.5

@@ -10,8 +10,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     [Tooltip("Biome the run starts in; the cycle continues from here.")]
     [SerializeField] EnvironmentPreset environment = EnvironmentPreset.TropicalRun;
     [Header("Biome cycle")]
-    [SerializeField] float biomeLength = 320f;
-    [SerializeField] float biomeBlend = 24f;
+    [SerializeField] float biomeLength = 900f;
+    [SerializeField] float biomeBlend = 70f;
     [Header("Run")]
     [SerializeField] float forwardSpeed = 12f;
     [SerializeField] float laneWidth = 2.3f;
@@ -28,6 +28,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     [SerializeField] float shipLength = 8f;
     [SerializeField] GameObject sideRockPrefab;
     [SerializeField] GameObject dockBarrelPrefab;
+    [SerializeField] GameObject[] shoreModels;
     [SerializeField] Shader skyShader;
     [SerializeField] Material sprayMaterial;
     [SerializeField] Shader postFxShader;
@@ -70,6 +71,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     bool tunnelMeasured;
     EnvironmentPreset shownBiome;
     Atmosphere atmosphere;
+    readonly System.Collections.Generic.Dictionary<Material,Material> coinMaterials=new();
     Material sea, seaLight, foam, gold, orange, cyan, charcoal, skin, wood, rock, palmLeaf;
     Material waterSurfaceMaterial;
     static Shader fallbackShader;
@@ -115,6 +117,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         public Color waterShallow, waterDeep, waterFar, waterTrough, waterSky; public float waveSpeed;
         public Color mountain, cloud;
         public float rain, embers, lightning, volcano, fov;
+        public float coinGlow;   // a teal cave turns metallic gold green; a little emission keeps coins reading as gold
         public Color gradeTint; public float reflectionLift, bloom, saturation, contrast, vignette, waterFoam, sunGlow;
 
         public static Atmosphere Lerp(Atmosphere a, Atmosphere b, float t)
@@ -131,7 +134,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 waterTrough = C(a.waterTrough, b.waterTrough), waterSky = C(a.waterSky, b.waterSky), waveSpeed = F(a.waveSpeed, b.waveSpeed),
                 mountain = C(a.mountain, b.mountain), cloud = C(a.cloud, b.cloud),
                 rain = F(a.rain, b.rain), embers = F(a.embers, b.embers), lightning = F(a.lightning, b.lightning), volcano = F(a.volcano, b.volcano), fov = F(a.fov, b.fov),
-                gradeTint = C(a.gradeTint, b.gradeTint), reflectionLift = F(a.reflectionLift, b.reflectionLift), bloom = F(a.bloom, b.bloom), saturation = F(a.saturation, b.saturation), contrast = F(a.contrast, b.contrast),
+                coinGlow = F(a.coinGlow, b.coinGlow), gradeTint = C(a.gradeTint, b.gradeTint), reflectionLift = F(a.reflectionLift, b.reflectionLift), bloom = F(a.bloom, b.bloom), saturation = F(a.saturation, b.saturation), contrast = F(a.contrast, b.contrast),
                 vignette = F(a.vignette, b.vignette), waterFoam = F(a.waterFoam, b.waterFoam), sunGlow = F(a.sunGlow, b.sunGlow),
             };
         }
@@ -155,13 +158,13 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             };
             case EnvironmentPreset.IceCave: return new Atmosphere      // dim glacial tunnel
             {
-                sunColor = Rgb(.36f, .88f, 1f), sunIntensity = .8f, sunEuler = new Vector3(70, -20, 0),
+                sunColor = Rgb(.68f, .9f, 1f), sunIntensity = .9f, sunEuler = new Vector3(70, -20, 0),
                 ambientSky = Rgb(.27f, .55f, .65f), ambientEquator = Rgb(.25f, .52f, .62f), ambientGround = Rgb(.18f, .4f, .5f),
                 fog = Rgb(.015f, .18f, .24f), fogStart = 40, fogEnd = 140,
                 skyTop = Rgb(.02f, .14f, .2f), skyHorizon = Rgb(.03f, .2f, .26f), skyBelow = Rgb(.02f, .14f, .2f),
                 waterShallow = Rgb(.05f, .45f, .5f), waterDeep = Rgb(.01f, .25f, .33f), waterFar = Rgb(.01f, .17f, .23f), waterTrough = Rgb(.005f, .15f, .21f), waterSky = Rgb(.2f, .62f, .72f), waveSpeed = .8f,
                 mountain = Rgb(.3f, .5f, .6f), cloud = Rgb(.35f, .45f, .5f), fov = 56,
-                gradeTint = Rgb(.97f, 1.01f, 1.04f), reflectionLift = 1.7f, bloom = .9f, saturation = 1.08f, contrast = 1.1f, vignette = .42f, waterFoam = .2f, sunGlow = 0f,
+                coinGlow = .6f, gradeTint = Rgb(.97f, 1.01f, 1.04f), reflectionLift = .55f, bloom = .9f, saturation = 1.08f, contrast = 1.1f, vignette = .42f, waterFoam = .2f, sunGlow = 0f,
             };
             case EnvironmentPreset.Volcanic: return new Atmosphere     // ash haze lit by lava
             {
@@ -274,6 +277,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         RenderSettings.ambientGroundColor = a.ambientGround;
         RenderSettings.fogColor = Color.Lerp(a.fog, Rgb(.8f, .85f, .95f), flash * .6f);
         RenderSettings.fogStartDistance = a.fogStart; RenderSettings.fogEndDistance = a.fogEnd;
+        foreach (var m in coinMaterials.Values) m.SetColor("_EmissionColor", new Color(1f, .6f, .08f) * a.coinGlow);
         if (gameCamera) gameCamera.backgroundColor = RenderSettings.fogColor;
         if (skyMaterial)
         {
@@ -851,7 +855,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
 
     void CreateShore()
     {
-        scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,pirateShipPrefab,BiomeCount);
+        scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,pirateShipPrefab,BiomeCount,shoreModels);
         scenery.BuildBackdrop();
         SpawnShoreUpTo(ShoreAhead);
         SpawnCaveUpTo(ShoreAhead);
@@ -907,6 +911,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         foreach(var t in segment.GetComponentsInChildren<Transform>(true))
             if(t.name.StartsWith("Ice_Tunnel_Water")) foreach(var rr in t.GetComponents<Renderer>()) rr.enabled=false;
         spawned.Add(segment);
+        var decor=scenery.SpawnTunnelDecor(movingWorld,WaterY,start,iceTunnelLength);
+        if(decor) spawned.Add(decor);
     }
 
     // Pirate ships work like lane-blocking traffic: some lie at anchor, others sail head-on down a lane.
@@ -960,6 +966,18 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             {
                 coin=Instantiate(goldPrefab,movingWorld);
                 coin.name="Gold pickup | Blender anchor coin";
+                foreach(var r in coin.GetComponentsInChildren<Renderer>())
+                {
+                    var from=r.sharedMaterial; if(!from) continue;
+                    if(!coinMaterials.TryGetValue(from,out var to))
+                    {
+                        // Standard, built from the emissive template so the variant survives shader stripping in builds
+                        to=new Material(emissiveTemplate); to.EnableKeyword("_EMISSION"); to.SetTexture("_MainTex",from.HasProperty("baseColorTexture")?from.GetTexture("baseColorTexture"):from.mainTexture);
+                        to.SetColor("_Color",Color.white); to.SetFloat("_Metallic",.25f); to.SetFloat("_Glossiness",.6f); to.SetColor("_EmissionColor",Color.black);
+                        coinMaterials[from]=to;
+                    }
+                    r.sharedMaterial=to;
+                }
                 coin.transform.localPosition=new Vector3((laneIndex-1)*laneWidth,.60f,z+i*3.6f);
                 coin.transform.localRotation=Quaternion.Euler(0,0,0);
             }
