@@ -51,7 +51,45 @@ public sealed class PirateRider : MonoBehaviour
     public void Fall() { if (thrown) return; thrown = true; animator.SetTrigger(FallId); }
     public void Victory() { animator.SetTrigger(VictoryId); }
     // Back on the seat after a paid continue.
-    public void Revive() { thrown = false; animator.Rebind(); animator.Update(0f); handWeight = 1f; }
+    public void Revive()
+    {
+        thrown = false; animator.Rebind(); animator.Update(0f); handWeight = 1f;
+        if (flying || landed) { transform.localPosition = seatedPosition; transform.localRotation = seatedRotation; }
+        flying = landed = false;
+    }
+
+    // Flung off the jetski: an arc with a tumble, a splash where it hits the water, then floating there.
+    const float ThrowGravity = 19f, FloatDepth = .55f, FloatBob = .07f;
+    bool flying, landed;
+    Vector3 flightVelocity, flightSpin, seatedPosition;
+    Quaternion seatedRotation;
+    float waterLevel;
+    System.Action<Vector3> onSplash;
+
+    public void Throw(Vector3 velocity, float water, System.Action<Vector3> splash)
+    {
+        if (flying || landed) return;
+        seatedPosition = transform.localPosition; seatedRotation = transform.localRotation;
+        flightVelocity = velocity; waterLevel = water; onSplash = splash; flying = true;
+        flightSpin = new Vector3(Random.Range(260f, 430f), Random.Range(-90f, 90f), Random.Range(-140f, 140f));
+    }
+
+    void UpdateFlight()
+    {
+        if (flying)
+        {
+            flightVelocity += Vector3.down * ThrowGravity * Time.deltaTime;
+            transform.position += flightVelocity * Time.deltaTime;
+            transform.Rotate(flightSpin * Time.deltaTime, Space.World);
+            if (transform.position.y > waterLevel - FloatDepth) return;
+            flying = false; landed = true;
+            onSplash?.Invoke(transform.position);
+        }
+        if (landed)
+        {
+            var p = transform.position; p.y = waterLevel - FloatDepth + Mathf.Sin(Time.time * 2.4f) * FloatBob; transform.position = p;
+        }
+    }
     // 0 = riding upright, 1 = folded low over the handlebar (ducking under hanging obstacles).
     public float Tuck { get; set; }
     float tuckShown;
@@ -61,6 +99,7 @@ public sealed class PirateRider : MonoBehaviour
 
     void LateUpdate()
     {
+        UpdateFlight();
         // The editor setup places the rider from the bind pose; once the first ride frame is posed,
         // shift the whole rig so the hips sit exactly on the seat. Done once so the hand IK stays stable.
         if (settleFrames > 0 && hips && seat && Seated)

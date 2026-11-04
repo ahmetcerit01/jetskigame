@@ -63,7 +63,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
     readonly List<Counter> counters = new();
     JetskiRunnerGame game;
     string outPath = "benchmark_report.txt";
-    static readonly int[] ShotsAt = { 900, 2800, 3000, 3300, 3500 };
+    static readonly int[] ShotsAt = { 200, 900, 2500, 3300, 4300 };
     int shot;
     int frames;
     bool skipFrame, capped;

@@ -25,7 +25,7 @@ public static class JetskiFeatureCapture
         (10.25f, "ships"), (11.0f, "shot:ships_side_by_side"), (11.02f, "skiff"), (11.18f, "shot:skiff"), (11.19f, "fx_rock"), (11.34f, "shot:rock_break"), (11.35f, "fx_break"), (11.48f, "shot:break"), (11.49f, "fx_explode"), (11.59f, "shot:explode"),
         (11.6f, "chase"), (12.7f, "shot:chaser"), (12.75f, "side:chaser_side"),
         (12.9f, "duck"), (13.3f, "side:duck"),
-        (13.6f, "crash"), (15.4f, "shot:gameover"), (15.5f, "curtain_restart"), (17.5f, "curtain_check"),
+        (13.32f, "ramp_jump"), (13.56f, "shot:ramp_jump"), (13.6f, "crash"), (13.95f, "shot:crash_fly"), (15.4f, "shot:gameover"), (15.5f, "curtain_restart"), (17.5f, "curtain_check"),
     };
 
     static JetskiFeatureCapture() { if (SessionState.GetBool(Key + "on", false)) EditorApplication.update += Tick; }
@@ -108,6 +108,11 @@ public static class JetskiFeatureCapture
                 var at = GameObject.Find("Player Jetski").transform.position + Vector3.forward * 5f;
                 if (a == "fx_explode") gt.GetMethod("Explode", flags).Invoke(game, new object[] { at });
                 else gt.GetMethod("BreakApart", flags).Invoke(game, new object[] { at, false });
+            }
+            else if (a == "ramp_jump")
+            {
+                gt.GetMethod("StartJump", flags).Invoke(game, new object[] { 1.1f, 2.2f });
+                gt.GetField("jumpSpin", flags).SetValue(game, true);
             }
             else if (a == "boost") gt.GetField("boostLeft", flags).SetValue(game, 2f);
             else if (a == "skiff")

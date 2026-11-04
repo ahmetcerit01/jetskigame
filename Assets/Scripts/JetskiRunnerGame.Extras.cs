@@ -65,6 +65,8 @@ public sealed partial class JetskiRunnerGame
         ui = RunnerUI.Create(this);
         CreateChaser();
         CreateShieldBubble();
+        CreateWake();
+        CreateSeagulls();
         if (foamRingMaterial)
         {
             ringOrange = new Material(foamRingMaterial); ringOrange.SetColor("_TintColor", new Color(1f, .35f, .05f, .5f));
@@ -202,7 +204,7 @@ public sealed partial class JetskiRunnerGame
         float lateral = Mathf.Abs(player.position.x - t.transform.position.x);
         bool changing = Mathf.Abs(player.position.x - (lane - 1) * laneWidth) > .3f;
         bool glancing = changing && lateral >= laneWidth * .4f;
-        if (!glancing && !t.Light) return false;
+        if (!glancing && !t.Light && !t.Bump) return false;
         if (t.Light) t.Knock(player.position.x);
         audioFx?.Stumble();
         cameraKick = Mathf.Max(cameraKick, .3f);
@@ -419,6 +421,135 @@ public sealed partial class JetskiRunnerGame
         rockChip = Make("Rock chip", new Color(.33f, .32f, .31f), 0, .15f);
         blastFire = MakeBurst("Blast fire", new Color(1f, .55f, .12f, 1f));
         blastSmoke = MakeBurst("Blast smoke", new Color(.13f, .11f, .1f, .8f));
+    }
+
+    // ---------- wake, glow and seagulls ----------
+
+    // Three foam streaks in a V behind the jetski, following where it has actually been so they curve through a lane change.
+    const int WakeSegments = 30, WakeRibbons = 3;
+    const float WakeStep = 1.1f, WakeY = -.27f;
+    static readonly (float start, float spread, float width, float strength)[] WakeShape =
+        { (-.55f, -.15f, .15f, 1f), (.55f, .15f, .15f, 1f), (0f, 0f, .12f, .9f) };
+    readonly float[] wakeHistory = new float[WakeSegments + 1];
+    float wakeMark;
+    Mesh wakeMesh; Vector3[] wakeVertices; Material wakeMaterial; Transform glow; Material glowMaterial;
+
+    void CreateWake()
+    {
+        var shader = Resources.Load<Shader>("Shaders/RunnerWake");
+        if (shader)
+        {
+            int verts = WakeRibbons * (WakeSegments + 1) * 2;
+            wakeVertices = new Vector3[verts];
+            var uv = new Vector2[verts]; var colors = new Color32[verts]; var tris = new int[WakeRibbons * WakeSegments * 6];
+            int t = 0;
+            for (int r = 0; r < WakeRibbons; r++) for (int i = 0; i <= WakeSegments; i++)
+            {
+                int v = (r * (WakeSegments + 1) + i) * 2;
+                float along = i / (float)WakeSegments;
+                byte alpha = (byte)(255 * WakeShape[r].strength * Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, along * 7f)) * (1f - along * along));
+                uv[v] = new Vector2(-1, i * WakeStep + r * 37f); uv[v + 1] = new Vector2(1, i * WakeStep + r * 37f);
+                colors[v] = colors[v + 1] = new Color32(255, 255, 255, alpha);
+                if (i == WakeSegments) continue;
+                tris[t++] = v; tris[t++] = v + 2; tris[t++] = v + 1; tris[t++] = v + 1; tris[t++] = v + 2; tris[t++] = v + 3;
+            }
+            wakeMesh = new Mesh { name = "Wake" }; wakeMesh.MarkDynamic();
+            wakeMesh.vertices = wakeVertices; wakeMesh.uv = uv; wakeMesh.colors32 = colors; wakeMesh.triangles = tris;
+            wakeMesh.bounds = new Bounds(Vector3.zero, Vector3.one * 200f);
+            var go = new GameObject("Jetski wake", typeof(MeshFilter), typeof(MeshRenderer));
+            go.GetComponent<MeshFilter>().sharedMesh = wakeMesh;
+            wakeMaterial = new Material(shader);
+            var renderer = go.GetComponent<MeshRenderer>(); renderer.sharedMaterial = wakeMaterial;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; renderer.receiveShadows = false;
+        }
+        var glowShader = Resources.Load<Shader>("Shaders/RunnerGlow");
+        if (glowShader)
+        {
+            var q = GameObject.CreatePrimitive(PrimitiveType.Quad); q.name = "Jetski glow"; Destroy(q.GetComponent<Collider>());
+            glowMaterial = new Material(glowShader);
+            var renderer = q.GetComponent<Renderer>(); renderer.sharedMaterial = glowMaterial; renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            glow = q.transform; glow.localScale = Vector3.one * 3.4f;
+        }
+    }
+
+    void UpdateWake()
+    {
+        var p = player.position;
+        if (wakeMesh)
+        {
+            while (distanceTravelled - wakeMark >= WakeStep)
+            {
+                wakeMark += WakeStep;
+                System.Array.Copy(wakeHistory, 0, wakeHistory, 1, WakeSegments);
+                wakeHistory[0] = p.x;
+            }
+            float slide = (distanceTravelled - wakeMark) / WakeStep;
+            int v = 0;
+            for (int r = 0; r < WakeRibbons; r++)
+            {
+                var shape = WakeShape[r];
+                for (int i = 0; i <= WakeSegments; i++)
+                {
+                    float back = (i + slide) * WakeStep;
+                    float x = (i == 0 ? p.x : wakeHistory[i - 1]) + shape.start + shape.spread * back;
+                    float half = shape.width + back * .024f;
+                    wakeVertices[v++] = new Vector3(x - half, WakeY, p.z - .9f - back);
+                    wakeVertices[v++] = new Vector3(x + half, WakeY, p.z - .9f - back);
+                }
+            }
+            wakeMesh.vertices = wakeVertices;
+            wakeMaterial.SetFloat("_Scroll", distanceTravelled);
+            wakeMaterial.SetFloat("_Strength", state != RunState.Running || jumpTime >= 0 || crashed ? 0f : Mathf.Lerp(1f, 1.3f, SpeedProgress));
+        }
+        if (glow)
+        {
+            glow.position = p + new Vector3(0, .95f, .5f);
+            glow.rotation = gameCamera.transform.rotation;
+            float amount = boostLeft > 0 ? .55f : atmosphere.sunRays * .2f;
+            glowMaterial.SetColor("_Color", new Color(1f, .78f, .36f, amount));
+        }
+    }
+
+    // A few gulls gliding across the sky wherever the sun is out.
+    const int GullCount = 3;
+    const float GullRange = 46f;
+    readonly List<(Transform body, Transform left, Transform right, float speed, float phase)> gulls = new();
+
+    void CreateSeagulls()
+    {
+        var feather = Make("Gull", new Color(.96f, .96f, .94f), 0, .2f);
+        var tip = Make("Gull tip", new Color(.2f, .22f, .26f), 0, .2f);
+        for (int i = 0; i < GullCount; i++)
+        {
+            var body = new GameObject("Seagull");
+            Part(body, PrimitiveType.Sphere, Vector3.zero, new Vector3(.34f, .28f, .85f), feather);
+            Transform Wing(float side)
+            {
+                var pivot = new GameObject("Wing").transform; pivot.SetParent(body.transform, false);
+                var wing = new GameObject("Blade"); wing.transform.SetParent(pivot, false);
+                Part(wing, PrimitiveType.Cube, new Vector3(side * .8f, 0, 0), new Vector3(1.5f, .05f, .5f), feather);
+                Part(wing, PrimitiveType.Cube, new Vector3(side * 1.7f, 0, -.05f), new Vector3(.4f, .05f, .32f), tip);
+                return pivot;
+            }
+            body.transform.position = new Vector3(Random.Range(-GullRange, GullRange), Random.Range(13f, 24f), Random.Range(55f, 110f));
+            gulls.Add((body.transform, Wing(-1f), Wing(1f), Random.Range(5f, 9f) * (i % 2 == 0 ? 1f : -1f), Random.value * 6f));
+        }
+    }
+
+    void UpdateSeagulls()
+    {
+        bool sunny = atmosphere.sunRays > .3f;
+        foreach (var g in gulls)
+        {
+            if (g.body.gameObject.activeSelf != sunny) g.body.gameObject.SetActive(sunny);
+            if (!sunny) continue;
+            var p = g.body.position; p.x += g.speed * Time.deltaTime;
+            if (Mathf.Abs(p.x) > GullRange) p.x = -Mathf.Sign(p.x) * GullRange;
+            g.body.position = p;
+            g.body.rotation = Quaternion.Euler(0, g.speed > 0 ? 90f : -90f, 0);
+            float flap = Mathf.Sin(Time.time * 5f + g.phase) * 24f + 8f;
+            g.left.localRotation = Quaternion.Euler(0, 0, -flap); g.right.localRotation = Quaternion.Euler(0, 0, flap);
+        }
     }
 
     // ---------- impacts ----------
@@ -752,7 +883,7 @@ public sealed partial class JetskiRunnerGame
 
     sealed partial class RunnerTrigger
     {
-        public bool Wide, Pulled, Light, Explosive, Rocky;
+        public bool Wide, Pulled, Light, Explosive, Rocky, Bump;
         public float DriftCenter, DriftRange, DriftDir;
         Transform fallingRock, warning; LineRenderer bolt;
         float strikeTime = -1f;

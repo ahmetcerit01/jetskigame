@@ -24,7 +24,7 @@ Shader "JetskiRunner/TropicalWater"
             fixed4 _Shallow, _Deep, _Far, _Trough, _Sky;
             float4 _SunDir;
             float4 _SkyTop, _SunColor, _PlayerPos;
-            float _WavePhase, _PlayerX, _Scroll, _Foam;
+            float _WavePhase, _PlayerX, _Scroll, _Foam, _Caustics;
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
             struct appdata { float4 vertex : POSITION; };
@@ -56,6 +56,20 @@ Shader "JetskiRunner/TropicalWater"
                     r.yz += d * cos(phase) * w[k].w * w[k].z;
                 }
                 return r;
+            }
+
+            // Web of light on the sea floor: folded sines, cheap enough for every water pixel.
+            float Caustic(float2 q, float t)
+            {
+                float2 p = q * .62;
+                float c = 1;
+                for (int k = 0; k < 3; k++)
+                {
+                    float2 w = p + float2(sin(p.y * 1.3 + t * .9), cos(p.x * 1.1 - t * .7)) * .9;
+                    c = min(c, abs(sin(w.x) * cos(w.y)));
+                    p = float2(p.x * .8 - p.y * .6, p.x * .6 + p.y * .8) * 1.45 + 2.1;
+                }
+                return pow(saturate(1 - c * 2.4), 2);
             }
 
             v2f vert(appdata v)
@@ -91,6 +105,7 @@ Shader "JetskiRunner/TropicalWater"
                 fixed3 col = lerp(_Shallow.rgb, _Deep.rgb, saturate(dist / 60));
                 col = lerp(col, _Trough.rgb, patches * .6 * saturate(dist / 12));
                 col = lerp(col, _Far.rgb, saturate((dist - 70) / 160));
+                col += _Shallow.rgb * Caustic(q, t) * _Caustics * .2 * saturate(1 - dist / 80);
                 // crests catch light, troughs go darker
                 col *= 0.86 + saturate(waves.x * 6 + .5) * .26;
 
@@ -109,7 +124,7 @@ Shader "JetskiRunner/TropicalWater"
                 col *= .84 + diffuse * .2;
                 // HDR sun sparkle (values above 1 feed the bloom), wide sheen under it
                 float rs = saturate(dot(refl, sun));
-                col += _SunColor.rgb * (pow(rs, 900) * 3.5 + pow(rs, 90) * .1);
+                col += _SunColor.rgb * (pow(rs, 900) * 1.8 + pow(rs, 90) * .05);
 
                 // wind-whipped whitecaps on the crests, more of them in rough biomes
                 float caps = Noise(q * float2(1.5, .9) + t * float2(.1, .28)) * .5 + Noise(q * 3.7 - t * .4) * .3 + Noise(q * 9.1 + t * .3) * .2;

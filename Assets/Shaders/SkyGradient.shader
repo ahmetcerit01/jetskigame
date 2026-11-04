@@ -18,6 +18,7 @@ Shader "JetskiRunner/SkyGradient"
             #include "UnityCG.cginc"
             fixed4 _Top, _Horizon, _Below;
             float4 _SunDir, _SunColor;
+            float _Rays, _RayTime;
             struct v2f { float4 position : SV_POSITION; float3 dir : TEXCOORD0; };
             v2f vert(float4 vertex : POSITION)
             {
@@ -34,6 +35,16 @@ Shader "JetskiRunner/SkyGradient"
                 // sun: HDR disc for the bloom, tight corona and a wide warm glow over the horizon
                 float d = saturate(dot(dir, normalize(_SunDir.xyz)));
                 col += _SunColor.rgb * (smoothstep(.9994, .9997, d) * 6 + pow(d, 350) * .6 + pow(d, 70) * .12) * step(-.02, y);
+                // light shafts fanning out of the sun, turning slowly
+                float3 sunDir = normalize(_SunDir.xyz);
+                if (_Rays > .001 && dir.z > .05)
+                {
+                    float2 fromSun = dir.xy / dir.z - sunDir.xy / sunDir.z;
+                    float ang = atan2(fromSun.y, fromSun.x);
+                    float shafts = sin(ang * 13.0 + _RayTime) * sin(ang * 7.0 - _RayTime * .6) + sin(ang * 23.0 + _RayTime * .35) * .4;
+                    float reach = saturate(1 - length(fromSun) * .85);
+                    col += fixed3(.55, .72, 1) * saturate(shafts) * reach * saturate(y * 5) * _Rays * .3;
+                }
                 return fixed4(col, 1);
             }
             ENDCG

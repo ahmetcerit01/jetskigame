@@ -126,7 +126,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         public Color skyTop, skyHorizon, skyBelow;
         public Color waterShallow, waterDeep, waterFar, waterTrough, waterSky; public float waveSpeed;
         public Color mountain, cloud;
-        public float rain, embers, lightning, volcano, fov;
+        public float rain, embers, lightning, volcano, fov, sunRays, caustics;
         public float coinGlow;   // a teal cave turns metallic gold green; a little emission keeps coins reading as gold
         public Color gradeTint; public float reflectionLift, bloom, saturation, contrast, vignette, waterFoam, sunGlow;
 
@@ -143,7 +143,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 waterShallow = C(a.waterShallow, b.waterShallow), waterDeep = C(a.waterDeep, b.waterDeep), waterFar = C(a.waterFar, b.waterFar),
                 waterTrough = C(a.waterTrough, b.waterTrough), waterSky = C(a.waterSky, b.waterSky), waveSpeed = F(a.waveSpeed, b.waveSpeed),
                 mountain = C(a.mountain, b.mountain), cloud = C(a.cloud, b.cloud),
-                rain = F(a.rain, b.rain), embers = F(a.embers, b.embers), lightning = F(a.lightning, b.lightning), volcano = F(a.volcano, b.volcano), fov = F(a.fov, b.fov),
+                rain = F(a.rain, b.rain), sunRays = F(a.sunRays, b.sunRays), caustics = F(a.caustics, b.caustics), embers = F(a.embers, b.embers), lightning = F(a.lightning, b.lightning), volcano = F(a.volcano, b.volcano), fov = F(a.fov, b.fov),
                 coinGlow = F(a.coinGlow, b.coinGlow), gradeTint = C(a.gradeTint, b.gradeTint), reflectionLift = F(a.reflectionLift, b.reflectionLift), bloom = F(a.bloom, b.bloom), saturation = F(a.saturation, b.saturation), contrast = F(a.contrast, b.contrast),
                 vignette = F(a.vignette, b.vignette), waterFoam = F(a.waterFoam, b.waterFoam), sunGlow = F(a.sunGlow, b.sunGlow),
             };
@@ -162,7 +162,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 ambientSky = Rgb(.8f, .74f, .68f), ambientEquator = Rgb(.72f, .62f, .5f), ambientGround = Rgb(.36f, .4f, .42f),
                 fog = Rgb(.93f, .8f, .64f), fogStart = 55, fogEnd = 400,
                 skyTop = Rgb(.32f, .48f, .76f), skyHorizon = Rgb(.99f, .8f, .58f), skyBelow = Rgb(.72f, .7f, .66f),
-                waterShallow = Rgb(.13f, .6f, .7f), waterDeep = Rgb(.05f, .43f, .64f), waterFar = Rgb(.6f, .6f, .62f), waterTrough = Rgb(.03f, .33f, .53f), waterSky = Rgb(.97f, .82f, .64f), waveSpeed = 1f,
+                sunRays = .7f, caustics = .7f, waterShallow = Rgb(.13f, .6f, .7f), waterDeep = Rgb(.05f, .43f, .64f), waterFar = Rgb(.6f, .6f, .62f), waterTrough = Rgb(.03f, .33f, .53f), waterSky = Rgb(.97f, .82f, .64f), waveSpeed = 1f,
                 mountain = Rgb(.52f, .5f, .44f), cloud = Rgb(1f, .88f, .76f), fov = 50,
                 gradeTint = Rgb(1.04f, .99f, .92f), bloom = .75f, saturation = 1.04f, contrast = 1.08f, vignette = .28f, waterFoam = .3f, sunGlow = .85f,
             };
@@ -172,7 +172,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 ambientSky = Rgb(.27f, .55f, .65f), ambientEquator = Rgb(.25f, .52f, .62f), ambientGround = Rgb(.18f, .4f, .5f),
                 fog = Rgb(.015f, .18f, .24f), fogStart = 40, fogEnd = 140,
                 skyTop = Rgb(.02f, .14f, .2f), skyHorizon = Rgb(.03f, .2f, .26f), skyBelow = Rgb(.02f, .14f, .2f),
-                waterShallow = Rgb(.05f, .45f, .5f), waterDeep = Rgb(.01f, .25f, .33f), waterFar = Rgb(.01f, .17f, .23f), waterTrough = Rgb(.005f, .15f, .21f), waterSky = Rgb(.2f, .62f, .72f), waveSpeed = .8f,
+                caustics = .55f, waterShallow = Rgb(.05f, .45f, .5f), waterDeep = Rgb(.01f, .25f, .33f), waterFar = Rgb(.01f, .17f, .23f), waterTrough = Rgb(.005f, .15f, .21f), waterSky = Rgb(.2f, .62f, .72f), waveSpeed = .8f,
                 mountain = Rgb(.3f, .5f, .6f), cloud = Rgb(.35f, .45f, .5f), fov = 56,
                 coinGlow = .6f, gradeTint = Rgb(.97f, 1.01f, 1.04f), reflectionLift = .55f, bloom = .9f, saturation = 1.08f, contrast = 1.1f, vignette = .42f, waterFoam = .2f, sunGlow = 0f,
             };
@@ -200,11 +200,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             {
                 sunColor = Rgb(1f, .95f, .86f), sunIntensity = 1.15f, sunEuler = new Vector3(48, -32, 0),
                 ambientSky = Rgb(.72f, .82f, .92f), ambientEquator = Rgb(.6f, .74f, .8f), ambientGround = Rgb(.32f, .52f, .58f),
-                fog = Rgb(.78f, .87f, .93f), fogStart = 60, fogEnd = 470,
-                skyTop = Rgb(.36f, .62f, .84f), skyHorizon = Rgb(.8f, .88f, .93f), skyBelow = Rgb(.55f, .75f, .88f),
-                waterShallow = Rgb(.13f, .72f, .83f), waterDeep = Rgb(.06f, .56f, .78f), waterFar = Rgb(.33f, .66f, .84f), waterTrough = Rgb(.03f, .42f, .68f), waterSky = Rgb(.8f, .89f, .95f), waveSpeed = 1f,
+                fog = Rgb(.55f, .8f, .95f), fogStart = 60, fogEnd = 470,
+                skyTop = Rgb(.02f, .23f, .62f), skyHorizon = Rgb(.52f, .8f, .96f), skyBelow = Rgb(.3f, .62f, .82f),
+                sunRays = 1f, caustics = 1f, waterShallow = Rgb(.03f, .5f, .66f), waterDeep = Rgb(.02f, .33f, .58f), waterFar = Rgb(.16f, .5f, .76f), waterTrough = Rgb(.01f, .24f, .47f), waterSky = Rgb(.34f, .62f, .9f), waveSpeed = 1f,
                 mountain = Rgb(.43f, .56f, .54f), cloud = Rgb(1f, 1f, 1f), fov = 50,
-                gradeTint = Rgb(1f, 1f, 1f), bloom = .55f, saturation = 1.04f, contrast = 1.08f, vignette = .22f, waterFoam = .35f, sunGlow = 1f,
+                gradeTint = Rgb(1f, 1f, 1f), bloom = .55f, saturation = 1.04f, contrast = 1.08f, vignette = .22f, waterFoam = .18f, sunGlow = 1f,
             };
         }
     }
@@ -225,7 +225,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
 
     // Where the visible sun sits: ahead of the player, so it is in shot and its glitter path lies on the water.
     // The shadow-casting light stays behind the camera, keeping the side of everything facing the player lit.
-    static readonly Vector4 GlintSunDir = new(-.13f, .19f, 1f, 0f);
+    static readonly Vector4 GlintSunDir = new(.19f, .27f, 1f, 0f);
     RunnerPostFX postFx;
     Cubemap reflection;
     float reflectionTimer;
@@ -291,6 +291,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if (gameCamera) gameCamera.backgroundColor = RenderSettings.fogColor;
         if (skyMaterial)
         {
+            skyMaterial.SetFloat("_Rays", a.sunRays); skyMaterial.SetFloat("_RayTime", Time.time * .08f);
             skyMaterial.SetColor("_Top", Color.Lerp(a.skyTop, Rgb(.75f, .8f, .95f), flash * .7f));
             skyMaterial.SetColor("_Horizon", Color.Lerp(a.skyHorizon, Rgb(.9f, .92f, 1f), flash * .7f));
             skyMaterial.SetColor("_Below", a.skyBelow);
@@ -309,6 +310,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             waterSurfaceMaterial.SetColor("_SunColor", sunGlowColor);
             waterSurfaceMaterial.SetColor("_SkyTop", a.skyTop);
             waterSurfaceMaterial.SetFloat("_Foam", a.waterFoam);
+            waterSurfaceMaterial.SetFloat("_Caustics", a.caustics);
         }
         if (postFx)
         {
@@ -350,8 +352,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     // So everything the run can show is drawn once behind the loading screen, on the very first frame after launch.
     const float FocusHeight=.7f;
     static readonly Vector2 FocusSize=new(.34f,.2f);
-    const float MenuScreenZ=4.6f;
-    const float StumbleSpeed=.68f, ScreenForward=4.2f, ScreenStumble=2.2f, ScreenBoost=.7f;
+    const float JumpNoseUp=-27f, JumpNoseDown=16f, JumpSpinShare=.85f, CrashRoll=24f, CrashPitch=-10f;
+    bool jumpSpin;
+    float crashSide=1f;
+    const float LeanYaw=6f, MaxLeanYaw=11f, LeanRoll=19f, MaxLeanRoll=26f, CameraRoll=1.1f, MaxCameraRoll=3f;
+    const float StumbleSpeed=.68f, ScreenBase=4.6f, ScreenForward=3f, ScreenStumble=2.2f, ScreenBoost=.7f;
     float wavePhase, screenZ;
 
     public static bool Ready { get; private set; }
@@ -404,9 +409,10 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     // Main menu: the jetski idles on the water behind the menu while the scenery keeps its atmosphere.
     void UpdateMenu()
     {
-        // the jetski idles above the menu buttons, then drops back as the run starts
-        screenZ = MenuScreenZ;
+        // the jetski idles at its running spot, clear of the menu buttons
+        screenZ = ScreenBase;
         var p = player.position; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; p.z = screenZ; player.position = p;
+        UpdateWake(); UpdateSeagulls();
         player.rotation = Quaternion.Euler(Mathf.Sin(Time.time * 1.7f) * 1.5f, 0, Mathf.Sin(Time.time * 1.3f) * 2.5f);
         foreach (var spray in sprays) { var e = spray.emission; e.enabled = false; }
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX", player.position.x); waterSurfaceMaterial.SetVector("_PlayerPos", new Vector4(player.position.x, 0, player.position.z, 0)); }
@@ -424,6 +430,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if (crashed)
         {
             UpdateChaser(0f);
+            // the empty jetski slews over and settles
+            player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(CrashPitch, crashSide * 14f, crashSide * CrashRoll), 1f - Mathf.Exp(-5f * Time.deltaTime));
             audioFx?.SetMotion(0f, 0f, false, false, false);
             // keyboard restart once the game-over panel is up (and the continue offer has run out)
             if (OverTime > (CanRevive ? ReviveWindow : 1.2f) && RestartPressed()) Restart(false);
@@ -449,14 +457,16 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
         position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f) - (Ducking ? .16f : 0f);
         // At speed the jetski pushes up the screen; a stumble knocks it back down, and it climbs again as it recovers.
-        float screenTarget = ScreenForward * Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed) - ScreenStumble * stumbleBlend + (boostLeft > 0 ? ScreenBoost : 0f);
+        float screenTarget = ScreenBase + ScreenForward * Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed) - ScreenStumble * stumbleBlend + (boostLeft > 0 ? ScreenBoost : 0f);
         screenZ = Mathf.Lerp(screenZ, screenTarget, 1f - Mathf.Exp(-(screenTarget < screenZ ? 6f : 1.1f) * Time.deltaTime));
         position.z = screenZ;
         player.position = position;
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX",player.position.x); waterSurfaceMaterial.SetFloat("_Scroll",distanceTravelled); waterSurfaceMaterial.SetVector("_PlayerPos",new Vector4(player.position.x,JumpOffset,player.position.z,0)); }
-        float pitch = jumpTime < 0 ? (Ducking ? 5f : 0f) : Mathf.Lerp(-14f, 10f, jumpTime);
+        float pitch = jumpTime < 0 ? (Ducking ? 5f : 0f) : Mathf.Lerp(JumpNoseUp, JumpNoseDown, Mathf.SmoothStep(0f, 1f, jumpTime));
         pitch += stumbleBlend * Mathf.Sin(Time.time * 19f) * 7f;
-        player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(pitch, 0, Mathf.Clamp((desired.x-player.position.x)*-12f,-13f,13f)), Time.deltaTime*7f);
+        player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(pitch, Mathf.Clamp((desired.x-player.position.x)*LeanYaw,-MaxLeanYaw,MaxLeanYaw), Mathf.Clamp((desired.x-player.position.x)*-LeanRoll,-MaxLeanRoll,MaxLeanRoll)), Time.deltaTime*7f);
+        // a ramp launches the jetski into a full barrel roll, finished before it lands
+        if (jumpSpin && jumpTime >= 0) player.rotation = Quaternion.Euler(pitch, 0, 360f * Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(jumpTime / JumpSpinShare)));
         movingWorld.position += Vector3.back * (speed * Time.deltaTime);
         // wake spray grows with speed and boost, and stops while the hull is out of the water
         float wake = Mathf.Lerp(.75f, 1.6f, SpeedProgress) * (boostLeft > 0 ? 1.45f : 1f);
@@ -471,6 +481,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         FollowCamera();
         UpdateExtras(speed);
         UpdateAmbientMeteors();
+        UpdateWake();
+        UpdateSeagulls();
         SpawnLandmarksUpTo(distanceTravelled + ShoreAhead);
         SpawnShoreUpTo(distanceTravelled + ShoreAhead);
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
@@ -552,7 +564,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     void StartJump(float duration, float height)
     {
         activeJumpDuration = duration; activeJumpHeight = height;
-        jumpTime = 0f; landingCued = false;
+        jumpTime = 0f; landingCued = false; jumpSpin = false;
         if (rider) rider.Jump();
         duckLeft = 0f;
         audioFx?.Jump();
@@ -752,6 +764,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             cameraKick=Mathf.MoveTowards(cameraKick,0f,Time.deltaTime*2.2f);
             gameCamera.transform.position+=new Vector3(Mathf.Sin(Time.time*55f)*.06f,-.22f-Mathf.Sin(Time.time*47f)*.05f,0)*cameraKick;
         }
+        float roll=Mathf.Clamp((player.position.x-gameCamera.transform.position.x/.78f)*CameraRoll,-MaxCameraRoll,MaxCameraRoll);
+        gameCamera.transform.rotation=Quaternion.Slerp(gameCamera.transform.rotation,Quaternion.Euler(10,0,roll),1f-Mathf.Exp(-6f*Time.deltaTime));
         gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,atmosphere.fov+(boostLeft>0?7:0),Time.deltaTime*3f);
     }
 
@@ -1107,16 +1121,19 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         ShipsSailed++;
     }
 
-    // A small fast skiff: light enough to stumble on rather than crash, to jump, or to smash with a boost.
+    // A small fast skiff: running into it stumbles the player, but it cannot be jumped or broken.
     const string SkiffModel="37-pirate-skiff";
-    const float SkiffChance=.45f, SkiffSail=2.6f, SkiffScale=2.2f, SkiffYaw=90f, SkiffDraft=.6f;
+    const float SkiffChance=.45f, SkiffSail=2.6f, SkiffScale=2.2f, SkiffYaw=90f, SkiffDraft=.6f, SkiffTriggerHeight=6f;
     GameObject SpawnSkiff(GameObject prefab,int laneIndex,float z,float sail)
     {
         var boat=SpawnAsset(prefab,laneIndex,z,TriggerKind.Ship);
         boat.name="Pirate skiff | sailing head-on";
         boat.transform.localScale=Vector3.one*SkiffScale;
         var trigger=boat.GetComponent<RunnerTrigger>();
-        trigger.Light=true; trigger.Yaw=SkiffYaw; trigger.SailSpeed=sail; trigger.Draft=SkiffDraft;
+        trigger.Bump=true; trigger.Yaw=SkiffYaw; trigger.SailSpeed=sail; trigger.Draft=SkiffDraft;
+        // tall enough that no jump clears it: a boat has to be steered around
+        var box=boat.GetComponent<BoxCollider>();
+        if(box){ var size=box.size; size.y=SkiffTriggerHeight; box.size=size; var centre=box.center; centre.y=SkiffTriggerHeight*.5f; box.center=centre; }
         boat.transform.localRotation=Quaternion.Euler(0,SkiffYaw,0);
         return boat;
     }
@@ -1329,7 +1346,12 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     {
         ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f;
         crashed=true; crashTime=Time.time; duckLeft=0;
-        if(rider) rider.Fall();
+        if(rider)
+        {
+            rider.Fall();
+            rider.Throw(new Vector3(Random.Range(-1.6f,1.6f),8.2f,6.2f),WaterY,at=>{ if(this) ImpactSplash(at,1.3f); });
+        }
+        crashSide=Random.value<.5f?-1f:1f;
         audioFx?.Crash();
         FinishRun();
     }
@@ -1342,7 +1364,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             case TriggerKind.Coin: Collect(trigger.gameObject); break;
             case TriggerKind.Fuel: boostLeft=BoostTime; audioFx?.PowerUp(); Destroy(trigger.gameObject); break;
             case TriggerKind.Magnet: case TriggerKind.Shield: case TriggerKind.DoubleCoins: Pickup(trigger); break;
-            case TriggerKind.Ramp: if(jumpTime<0){ duckLeft=0; StartJump(jumpDuration,jumpHeight); } break;
+            case TriggerKind.Ramp: if(jumpTime<0){ duckLeft=0; StartJump(jumpDuration,jumpHeight); jumpSpin=true; } break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
                 if(trigger.Explosive){ Explode(Vector3.Lerp(player.position,trigger.transform.position,.5f)); Destroy(trigger.gameObject); }
@@ -1365,9 +1387,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 if(AbsorbHit(trigger)) return;
                 Crash();
                 break;
-            case TriggerKind.Ship:                     // too big to jump or smash, unless it is a light skiff: change lanes
-                if(trigger.Light&&JumpOffset>.7f) return;
-                if(trigger.Light&&boostLeft>0){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; }
+            case TriggerKind.Ship:                     // too big to jump or smash: change lanes
                 if(AbsorbHit(trigger) || TryStumble(trigger)) return;
                 Crash();
                 break;
