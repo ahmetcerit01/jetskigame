@@ -22,8 +22,8 @@ public static class JetskiFeatureCapture
         (6.3f, "spawn:CreateLavaRock"), (7.25f, "shot:lava"),
         (7.4f, "spawn:CreateLightning"), (8.32f, "shot:lightning_warn"), (9.0f, "shot:lightning"),
         (9.3f, "spawn:CreateIceFloe"), (10.2f, "shot:icefloe"),
-        (10.25f, "ships"), (11.0f, "shot:ships_side_by_side"), (11.02f, "skiff"), (11.18f, "shot:skiff"),
-        (11.2f, "chase"), (12.7f, "shot:chaser"), (12.75f, "side:chaser_side"),
+        (10.25f, "ships"), (11.0f, "shot:ships_side_by_side"), (11.02f, "skiff"), (11.18f, "shot:skiff"), (11.19f, "fx_rock"), (11.34f, "shot:rock_break"), (11.35f, "fx_break"), (11.48f, "shot:break"), (11.49f, "fx_explode"), (11.59f, "shot:explode"),
+        (11.6f, "chase"), (12.7f, "shot:chaser"), (12.75f, "side:chaser_side"),
         (12.9f, "duck"), (13.3f, "side:duck"),
         (13.6f, "crash"), (15.4f, "shot:gameover"), (15.5f, "curtain_restart"), (17.5f, "curtain_check"),
     };
@@ -96,6 +96,18 @@ public static class JetskiFeatureCapture
             {
                 var curtain = (UnityEngine.UI.Image)typeof(RunnerUI).GetField("curtain", flags).GetValue(ui);
                 Debug.Log($"CURTAIN CHECK alpha={curtain.color.a:F2} state={game.State} loading={((GameObject)typeof(RunnerUI).GetField("loading", flags).GetValue(ui)).activeSelf}");
+            }
+            else if (a == "fx_rock")
+            {
+                foreach (var go in (System.Collections.Generic.List<GameObject>)gt.GetField("spawned", flags).GetValue(game))
+                    if (go && go.transform.position.z > 1f && go.transform.position.z < 60f) go.SetActive(false);
+                gt.GetMethod("BreakApart", flags).Invoke(game, new object[] { GameObject.Find("Player Jetski").transform.position + Vector3.forward * 5f, true });
+            }
+            else if (a == "fx_break" || a == "fx_explode")
+            {
+                var at = GameObject.Find("Player Jetski").transform.position + Vector3.forward * 5f;
+                if (a == "fx_explode") gt.GetMethod("Explode", flags).Invoke(game, new object[] { at });
+                else gt.GetMethod("BreakApart", flags).Invoke(game, new object[] { at, false });
             }
             else if (a == "boost") gt.GetField("boostLeft", flags).SetValue(game, 2f);
             else if (a == "skiff")

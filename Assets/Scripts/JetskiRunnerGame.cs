@@ -1258,6 +1258,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         box.size=new Vector3(bounds.size.x/scale.x*shrink,bounds.size.y/scale.y,bounds.size.z/scale.z*shrink);
     }
 
+    static bool NameHas(GameObject prefab,string part)=>prefab.name.IndexOf(part,System.StringComparison.OrdinalIgnoreCase)>=0;
+
     void CreateObstacleRow(int freeLane,float z)
     {
         for(int laneIndex=0;laneIndex<3;laneIndex++)
@@ -1266,7 +1268,10 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             var prefab=obstaclePrefabs[Random.Range(0,obstaclePrefabs.Length)];
             var hazard=SpawnAsset(prefab,laneIndex,z+Random.Range(-1.5f,1.5f),TriggerKind.Obstacle);
             hazard.transform.localRotation=Quaternion.Euler(0,Random.Range(-20f,20f),0);
-            hazard.GetComponent<RunnerTrigger>().Light=prefab.name.IndexOf("barrel",System.StringComparison.OrdinalIgnoreCase)>=0;
+            var kind=hazard.GetComponent<RunnerTrigger>();
+            kind.Light=NameHas(prefab,"barrel")||NameHas(prefab,"log");
+            kind.Explosive=NameHas(prefab,"mine");
+            kind.Rocky=NameHas(prefab,"rock");
         }
         CreateCoinRow(freeLane,z-3f,3);
     }
@@ -1340,6 +1345,12 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             case TriggerKind.Ramp: if(jumpTime<0){ duckLeft=0; StartJump(jumpDuration,jumpHeight); } break;
             case TriggerKind.Obstacle:
                 if(JumpOffset>.7f) return;           // cleared it in the air
+                if(trigger.Explosive){ Explode(Vector3.Lerp(player.position,trigger.transform.position,.5f)); Destroy(trigger.gameObject); }
+                if(trigger.Rocky)
+                {
+                    BreakApart(trigger.transform.position,true);
+                    Destroy(trigger.gameObject);
+                }
                 if(boostLeft>0){ ImpactSplash(trigger.transform.position,1f); trigger.Knock(player.position.x); if(rider) rider.Hit(); return; } // boost smashes through
                 if(AbsorbHit(trigger) || TryStumble(trigger)) return;
                 Crash();
@@ -1382,6 +1393,14 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         public void Knock(float playerX)
         {
             if(knockedFor>=0) return;
+            if(Light)
+            {
+                game.BreakApart(transform.position);
+                foreach(var c in GetComponents<Collider>()) c.enabled=false;
+                Destroy(gameObject);
+                knockedFor=0f;
+                return;
+            }
             knockedFor=0f;
             foreach(var c in GetComponents<Collider>()) c.enabled=false;
             float side=transform.position.x>=playerX?1f:-1f;

@@ -198,7 +198,7 @@ public sealed partial class JetskiRunnerGame
     // instead of crashing; twice in a row = caught.
     bool TryStumble(RunnerTrigger t)
     {
-        if (t.Wide) return false;
+        if (t.Wide && !t.Light) return false;
         float lateral = Mathf.Abs(player.position.x - t.transform.position.x);
         bool changing = Mathf.Abs(player.position.x - (lane - 1) * laneWidth) > .3f;
         bool glancing = changing && lateral >= laneWidth * .4f;
@@ -339,24 +339,58 @@ public sealed partial class JetskiRunnerGame
         return m;
     }
 
-    // Weathered black sail with a skull and crossbones.
+    // Weathered black sail with a skull and crossbones, drawn from distance functions so every edge stays smooth.
+    const int SailWidth = 1024, SailHeight = 448, WideSailRepeat = 3;
+    const float SailAspect = SailWidth / (float)SailHeight;
+
+    static float Circle(float x, float y, float cx, float cy, float r) => Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) - r;
+    static float Capsule(float x, float y, float ax, float ay, float bx, float by, float r)
+    {
+        float dx = bx - ax, dy = by - ay, t = Mathf.Clamp01(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy));
+        return Circle(x, y, ax + dx * t, ay + dy * t, r);
+    }
+    static float RoundedBox(float x, float y, float cx, float cy, float hx, float hy, float r)
+    {
+        float qx = Mathf.Abs(x - cx) - hx + r, qy = Mathf.Abs(y - cy) - hy + r;
+        return Mathf.Sqrt(Mathf.Max(qx, 0f) * Mathf.Max(qx, 0f) + Mathf.Max(qy, 0f) * Mathf.Max(qy, 0f)) + Mathf.Min(Mathf.Max(qx, qy), 0f) - r;
+    }
+
+    static float Bone(float x, float y, float ax, float ay, float bx, float by)
+    {
+        float len = Mathf.Sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay)), nx = -(by - ay) / len * .035f, ny = (bx - ax) / len * .035f;
+        float d = Capsule(x, y, ax, ay, bx, by, .03f);
+        d = Mathf.Min(d, Mathf.Min(Circle(x, y, ax + nx, ay + ny, .043f), Circle(x, y, ax - nx, ay - ny, .043f)));
+        return Mathf.Min(d, Mathf.Min(Circle(x, y, bx + nx, by + ny, .043f), Circle(x, y, bx - nx, by - ny, .043f)));
+    }
+
+    static float SkullShape(float x, float y)
+    {
+        float head = Mathf.Min(Circle(x, y, 0f, .1f, .25f), RoundedBox(x, y, 0f, -.14f, .135f, .1f, .04f));
+        float holes = Mathf.Min(Circle(x, y, -.095f, .08f, .07f), Circle(x, y, .095f, .08f, .07f));
+        holes = Mathf.Min(holes, Capsule(x, y, 0f, -.015f, 0f, -.055f, .022f));
+        for (int i = -1; i <= 1; i++) holes = Mathf.Min(holes, Capsule(x, y, i * .058f, -.17f, i * .058f, -.25f, .007f));
+        return Mathf.Max(head, -holes);
+    }
+
     static Texture2D SailTexture()
     {
-        const int n = 256; var t = new Texture2D(n, n, TextureFormat.RGB24, true);
-        for (int y = 0; y < n; y++) for (int x = 0; x < n; x++)
+        var pixels = new Color32[SailWidth * SailHeight];
+        float edge = 1.5f / SailHeight;
+        var ink = new Color(.86f, .83f, .74f);
+        for (int py = 0; py < SailHeight; py++) for (int px = 0; px < SailWidth; px++)
         {
-            float u = x / (float)n, v = 1f - y / (float)n;   // the cube's -Z face shows the texture upside down
-            float cloth = .085f + Mathf.PerlinNoise(u * 18f, v * 5f) * .06f + (x % 42 < 2 ? -.025f : 0f);
+            float u = px / (float)SailWidth, v = 1f - py / (float)SailHeight;   // the cube's -Z face shows the texture upside down
+            float cloth = .085f + Mathf.PerlinNoise(u * 18f, v * 5f) * .06f;
             var c = new Color(cloth * 1.05f, cloth * .95f, cloth);
-            float dx = (u - .5f) * 2.6f, dy = (v - .56f) * 1.4f;                   // the cube face is wider than tall
-            bool skull = dx * dx + dy * dy * 1.3f < .1f, jaw = Mathf.Abs(dx) < .19f && v > .36f && v < .5f;
-            bool eye = (dx + .13f) * (dx + .13f) + (dy - .02f) * (dy - .02f) * 1.6f < .012f || (dx - .13f) * (dx - .13f) + (dy - .02f) * (dy - .02f) * 1.6f < .012f;
-            float bx = (u - .5f) * 2.6f, by = (v - .25f) * 2f;
-            bool bones = v < .38f && (Mathf.Abs(bx - by) < .06f || Mathf.Abs(bx + by) < .06f) && Mathf.Abs(bx) < .55f;
-            if ((skull || jaw || bones) && !eye) c = new Color(.86f, .83f, .74f);
-            t.SetPixel(x, y, c);
+            float x = (u - .5f) * SailAspect, y = v - .52f;
+            float skull = SkullShape(x, y);
+            float bones = Mathf.Min(Bone(x, y, -.62f, -.31f, .62f, .2f), Bone(x, y, -.62f, .2f, .62f, -.31f));
+            bones = Mathf.Max(bones, -(Mathf.Min(Circle(x, y, 0f, .1f, .25f), RoundedBox(x, y, 0f, -.14f, .135f, .1f, .04f)) - .03f));   // a dark gap keeps them behind the skull
+            float d = Mathf.Min(skull, bones);
+            pixels[py * SailWidth + px] = Color.Lerp(c, ink, Mathf.Clamp01(.5f - d / edge));
         }
-        t.Apply(); return t;
+        var t = new Texture2D(SailWidth, SailHeight, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
+        t.SetPixels32(pixels); t.Apply(); return t;
     }
 
     // Long bark grain; wraps around the log along its length.
@@ -380,7 +414,101 @@ public sealed partial class JetskiRunnerGame
         lavaRock = Make("Lava rock", new Color(.09f, .06f, .05f), 0, .2f);
         lavaGlow = MakeGlowing("Lava glow", new Color(1f, .38f, .05f), new Color(2.2f, .7f, .08f));
         sail = Make("Banner sail", Color.white, 0, .15f); sail.mainTexture = SailTexture();
+        sailWide = new Material(sail) { name = "Banner sail wide", mainTextureScale = new Vector2(WideSailRepeat, 1f) };
         bark = Make("Log bark", Color.white, 0, .22f); bark.mainTexture = BarkTexture();
+        rockChip = Make("Rock chip", new Color(.33f, .32f, .31f), 0, .15f);
+        blastFire = MakeBurst("Blast fire", new Color(1f, .55f, .12f, 1f));
+        blastSmoke = MakeBurst("Blast smoke", new Color(.13f, .11f, .1f, .8f));
+    }
+
+    // ---------- impacts ----------
+
+    Material sailWide, rockChip;
+    ParticleSystem blastFire, blastSmoke;
+    const int BlastFireCount = 24, BlastSmokeCount = 12, BreakPieceCount = 7;
+
+    ParticleSystem MakeBurst(string name, Color color)
+    {
+        var go = new GameObject(name);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main = ps.main; main.simulationSpace = ParticleSystemSimulationSpace.World; main.maxParticles = 80; main.playOnAwake = false;
+        var emission = ps.emission; emission.enabled = false;
+        var shape = ps.shape; shape.enabled = false;
+        var fade = ps.colorOverLifetime; fade.enabled = true;
+        var gradient = new Gradient(); gradient.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) }, new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+        fade.color = gradient;
+        var material = new Material(splashMaterial) { name = name }; material.SetColor("_TintColor", color);
+        go.GetComponent<ParticleSystemRenderer>().sharedMaterial = material;
+        ps.Play();
+        return ps;
+    }
+
+    // A small blast where the player touched a mine or a meteor.
+    void Explode(Vector3 at)
+    {
+        at.y = Mathf.Max(at.y, .5f);
+        var p = new ParticleSystem.EmitParams();
+        var drift = Vector3.back * CurrentSpeed * .6f;
+        for (int i = 0; i < BlastFireCount && blastFire; i++)
+        {
+            p.position = at + Random.insideUnitSphere * .35f; p.velocity = drift + Random.onUnitSphere * Random.Range(2f, 6.5f) + Vector3.up * 2f;
+            p.startSize = Random.Range(.6f, 1.3f); p.startLifetime = Random.Range(.25f, .5f); p.startColor = Color.white;
+            blastFire.Emit(p, 1);
+        }
+        for (int i = 0; i < BlastSmokeCount && blastSmoke; i++)
+        {
+            p.position = at + Random.insideUnitSphere * .5f; p.velocity = drift + Vector3.up * Random.Range(1.5f, 4f) + Random.insideUnitSphere * 1.5f;
+            p.startSize = Random.Range(1f, 1.8f); p.startLifetime = Random.Range(.6f, 1.1f); p.startColor = Color.white;
+            blastSmoke.Emit(p, 1);
+        }
+        ImpactSplash(at, .8f);
+        cameraKick = Mathf.Max(cameraKick, .4f);
+        audioFx?.Lava();
+    }
+
+    // A barrel or log flying apart in planks, or a rock shattering into chips, tumbling off and into the water.
+    // Their own materials are mapped for their models and look wrong on a plain cube, so the pieces have their own.
+    void BreakApart(Vector3 at, bool chunky = false)
+    {
+        ExtraMaterials();
+        for (int i = 0; i < BreakPieceCount; i++)
+        {
+            var piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(piece.GetComponent<Collider>());
+            piece.name = "Broken piece";
+            piece.transform.SetParent(movingWorld, false);
+            piece.transform.position = at + Vector3.up * .4f + Random.insideUnitSphere * .35f;
+            piece.transform.localRotation = Random.rotation;
+            piece.transform.localScale = chunky
+                ? new Vector3(Random.Range(.28f, .62f), Random.Range(.24f, .5f), Random.Range(.28f, .62f))
+                : new Vector3(Random.Range(.14f, .26f), Random.Range(.1f, .2f), Random.Range(.5f, 1.15f));
+            var r = piece.GetComponent<Renderer>();
+            r.sharedMaterial = chunky ? rockChip : bark;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            piece.AddComponent<BrokenPiece>();
+        }
+        EmitDrops(at, 10, Vector3.zero, 3f, 2f, 5f, .25f, .55f, CurrentSpeed);
+    }
+
+    sealed class BrokenPiece : MonoBehaviour
+    {
+        const float Life = 1.3f;
+        Vector3 velocity, spin; float age;
+        void Awake()
+        {
+            float side = Random.value < .5f ? -1f : 1f;
+            velocity = new Vector3(side * Random.Range(2f, 6.5f), Random.Range(4f, 8.5f), Random.Range(1f, 7f));
+            spin = Random.onUnitSphere * Random.Range(300f, 760f);
+        }
+        void Update()
+        {
+            age += Time.deltaTime;
+            velocity += Physics.gravity * Time.deltaTime;
+            transform.position += velocity * Time.deltaTime;
+            transform.Rotate(spin * Time.deltaTime, Space.World);
+            if (age > Life || transform.position.y < -.4f) Destroy(gameObject);
+        }
     }
 
     void CreatePowerUp(int laneIndex, float z)
@@ -430,6 +558,7 @@ public sealed partial class JetskiRunnerGame
     }
 
     // Floating log boom: jump it. Spans one lane, or (later in the run) all three.
+    // Logs are light: running into one stumbles the player and breaks it.
     void CreateLogRow(int freeLane, float z, bool allLanes)
     {
         ExtraMaterials();
@@ -443,6 +572,7 @@ public sealed partial class JetskiRunnerGame
             Part(go, PrimitiveType.Sphere, new Vector3(x, .42f, 0), Vector3.one * .42f, i % 2 == 0 ? red : white);
         }
         TriggerBox(go, new Vector3(0, .35f, 0), new Vector3(length, .8f, .5f));
+        go.GetComponent<RunnerTrigger>().Light = true;
         // coins arc over the log in one lane to teach the jump
         int coinLane = allLanes ? freeLane : laneIndex;
         float flight = CurrentSpeed * playerJumpDuration;
@@ -487,7 +617,7 @@ public sealed partial class JetskiRunnerGame
         }
         else
         {
-            Part(go, PrimitiveType.Cube, new Vector3(0, 2.1f, 0), new Vector3(width, 1.25f, .05f), sail);
+            Part(go, PrimitiveType.Cube, new Vector3(0, 2.1f, 0), new Vector3(width, 1.25f, .05f), allLanes ? sailWide : sail);
             Part(go, PrimitiveType.Cube, new Vector3(0, 1.5f, -.03f), new Vector3(width, .1f, .06f), red);   // red hem marks the danger height
         }
         TriggerBox(go, new Vector3(0, 2.05f, 0), new Vector3(width - .2f, 1.4f, .5f));
@@ -587,7 +717,9 @@ public sealed partial class JetskiRunnerGame
         }
         rock.transform.localPosition = new Vector3(0, 22f, 0);
         TriggerBox(go, new Vector3(0, .45f, 0), new Vector3(1.2f, 1.1f, 1.2f));
-        go.GetComponent<RunnerTrigger>().SetupFall(rock.transform, Telegraph(go, ringOrange));
+        var fall = go.GetComponent<RunnerTrigger>();
+        fall.Explosive = true;
+        fall.SetupFall(rock.transform, Telegraph(go, ringOrange));
     }
 
     void CreateLightning(int laneIndex, float z)
@@ -620,7 +752,7 @@ public sealed partial class JetskiRunnerGame
 
     sealed partial class RunnerTrigger
     {
-        public bool Wide, Pulled, Light;
+        public bool Wide, Pulled, Light, Explosive, Rocky;
         public float DriftCenter, DriftRange, DriftDir;
         Transform fallingRock, warning; LineRenderer bolt;
         float strikeTime = -1f;
