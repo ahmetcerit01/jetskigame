@@ -69,6 +69,7 @@ public sealed class RunnerUI : MonoBehaviour
             var es = new GameObject("EventSystem"); es.AddComponent<EventSystem>(); es.AddComponent<StandaloneInputModule>();
         }
         BuildHud(); BuildMenu(); BuildShop(); BuildSettings(); BuildPause(); BuildOver(); BuildLoading(); BuildCurtain();
+        PrepareFontAtlas();
     }
 
     Rect appliedSafeArea;
@@ -80,6 +81,17 @@ public sealed class RunnerUI : MonoBehaviour
         var size = new Vector2(Screen.width, Screen.height);
         root.anchorMin = area.position / size; root.anchorMax = (area.position + area.size) / size;
         root.offsetMin = root.offsetMax = Vector2.zero;
+    }
+
+    // A dynamic font rebuilds its whole atlas when a new size or letter first appears, which froze the game mid-run.
+    // Asking for every size in use now moves that work behind the loading screen.
+    void PrepareFontAtlas()
+    {
+        const string Letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;!?+-/()%'x";
+        const int PowerUpLabelSize = 64;
+        var sizes = new HashSet<int> { PowerUpLabelSize };
+        foreach (var text in GetComponentsInChildren<Text>(true)) if (text.font == font) sizes.Add(text.fontSize);
+        foreach (int size in sizes) font.RequestCharactersInTexture(Letters, size);
     }
 
     void BuildHud()

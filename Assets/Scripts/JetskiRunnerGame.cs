@@ -202,7 +202,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 ambientSky = Rgb(.72f, .82f, .92f), ambientEquator = Rgb(.6f, .74f, .8f), ambientGround = Rgb(.32f, .52f, .58f),
                 fog = Rgb(.55f, .8f, .95f), fogStart = 60, fogEnd = 470,
                 skyTop = Rgb(.02f, .23f, .62f), skyHorizon = Rgb(.52f, .8f, .96f), skyBelow = Rgb(.3f, .62f, .82f),
-                sunRays = 1f, caustics = 1f, waterShallow = Rgb(.03f, .5f, .66f), waterDeep = Rgb(.02f, .33f, .58f), waterFar = Rgb(.16f, .5f, .76f), waterTrough = Rgb(.01f, .24f, .47f), waterSky = Rgb(.34f, .62f, .9f), waveSpeed = 1f,
+                sunRays = 1f, caustics = 1f, waterShallow = Rgb(.02f, .6f, .72f), waterDeep = Rgb(.01f, .38f, .62f), waterFar = Rgb(.16f, .5f, .76f), waterTrough = Rgb(.01f, .24f, .47f), waterSky = Rgb(.34f, .62f, .9f), waveSpeed = 1f,
                 mountain = Rgb(.43f, .56f, .54f), cloud = Rgb(1f, 1f, 1f), fov = 50,
                 gradeTint = Rgb(1f, 1f, 1f), bloom = .55f, saturation = 1.04f, contrast = 1.08f, vignette = .22f, waterFoam = .18f, sunGlow = 1f,
             };
@@ -332,6 +332,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     void Start()
     {
         Application.targetFrameRate = 60;
+        RunnerCurve.Apply();
+        // converted first: the effects below are cloned from these
+        RunnerCurve.Convert(emissiveTemplate); RunnerCurve.Convert(splashMaterial); RunnerCurve.Convert(foamRingMaterial);
         CreateMaterials();
         CreateLightingAndSky();
         CreateOcean();
@@ -356,7 +359,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     bool jumpSpin;
     float crashSide=1f;
     const float LeanYaw=6f, MaxLeanYaw=11f, LeanRoll=19f, MaxLeanRoll=26f, CameraRoll=1.1f, MaxCameraRoll=3f;
-    const float StumbleSpeed=.68f, ScreenBase=4.6f, ScreenForward=3f, ScreenStumble=2.2f, ScreenBoost=.7f;
+    const float StumbleSpeed=.68f, ScreenBase=3.4f, ScreenForward=2.2f, ScreenStumble=2.2f, ScreenBoost=.7f;
     float wavePhase, screenZ;
 
     public static bool Ready { get; private set; }
@@ -390,6 +393,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 var mesh=r is SkinnedMeshRenderer skinned?skinned.sharedMesh:r.TryGetComponent<MeshFilter>(out var filter)?filter.sharedMesh:null;
                 if(!mesh) continue;
                 var materials=r.sharedMaterials;
+                foreach(var material in materials) RunnerCurve.Convert(material);
                 for(int m=0;m<materials.Length&&m<mesh.subMeshCount;m++)
                     if(materials[m]&&drawn.Add((mesh,materials[m])))
                     {
@@ -400,13 +404,18 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             }
         }
         var effects=FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None);
-        foreach(var effect in effects) effect.Emit(1);
+        foreach(var effect in effects) { if(effect.TryGetComponent<ParticleSystemRenderer>(out var pr)) RunnerCurve.Convert(pr.sharedMaterial); effect.Emit(1); }
 
         yield return null;
 
         foreach(var effect in effects) if(effect) effect.Clear();
         for(int i=movingWorld.childCount-1;i>=firstChild;i--) Destroy(movingWorld.GetChild(i).gameObject);
         spawned.RemoveRange(firstSpawned,spawned.Count-firstSpawned);
+        scenery?.FillPool(ShoreChunkCopies);
+        // the first power-up label otherwise makes Unity load and rasterise its built-in font in mid-run
+        var labelProbe=new GameObject("Label probe").AddComponent<TextMesh>();
+        labelProbe.text="x2"; labelProbe.fontSize=64;
+        Destroy(labelProbe.gameObject);
         Ready=true;
     }
 
@@ -482,6 +491,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             var velocity = spray.velocityOverLifetime; velocity.z = -speed;
             var emission = spray.emission; emission.enabled = jumpTime < 0; emission.rateOverTime = sprayRates[i] * wake;
             var main = spray.main; main.startSpeedMultiplier = wake;
+            main.startLifetimeMultiplier = Mathf.Min(1f, SprayTravel / Mathf.Max(speed, 1f));   // at speed, spray would otherwise fly past the camera as big blobs
         }
         ApplyAtmosphere();
         FollowCamera();
@@ -490,7 +500,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         UpdateWake();
         UpdateSeagulls();
         SpawnLandmarksUpTo(distanceTravelled + ShoreAhead);
-        SpawnShoreUpTo(distanceTravelled + ShoreAhead);
+        SpawnShoreUpTo(distanceTravelled + ShoreChunkAhead);
         SpawnCaveUpTo(distanceTravelled + ShoreAhead);
         RecycleWater();
         CleanupPassed();
@@ -619,7 +629,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
     Material Make(string n, Color c, float metallic, float smooth)
     {
-        var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
+        var shader = RunnerCurve.Surface;
+        if (!shader) shader = Shader.Find("Standard");
+        if (!shader) shader = Shader.Find("Diffuse");
         if (shader == null)
         {
             if (fallbackShader == null)
@@ -737,13 +749,16 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
 
     // Low chase camera like the Blender gameplay preview: rider in the bottom third, horizon about a third down.
-    static readonly Vector3 CameraOffset=new Vector3(0,3.7f,-7.9f);
+    static readonly Vector3 CameraOffset=new Vector3(0,3.2f,-6.7f);
+    const float CameraPitch=11.5f;    // the curved world lowers the horizon; looking further down brings it back up the screen
+    const float CurveCullMargin=22f;   // things above the view on the flat world still bend down into it
+    const float WideLens=4f;   // the closer camera still has to show the lanes on both sides
     void CreateCamera()
     {
         gameCamera=new GameObject("Portrait chase camera").AddComponent<Camera>();
-        gameCamera.tag="MainCamera"; gameCamera.fieldOfView=AtmosphereOf(CurrentBiome).fov; gameCamera.nearClipPlane=.1f; gameCamera.farClipPlane=620;
+        gameCamera.tag="MainCamera"; gameCamera.fieldOfView=AtmosphereOf(CurrentBiome).fov+WideLens; gameCamera.nearClipPlane=.1f; gameCamera.farClipPlane=620;
         gameCamera.clearFlags=CameraClearFlags.SolidColor;
-        gameCamera.transform.position=CameraOffset; gameCamera.transform.rotation=Quaternion.Euler(10,0,0);
+        gameCamera.transform.position=CameraOffset; gameCamera.transform.rotation=Quaternion.Euler(CameraPitch,0,0);
         gameCamera.aspect=9f/16f;
         gameCamera.gameObject.AddComponent<AudioListener>();
         // depth powers the water's contact foam and the soft particles
@@ -774,11 +789,17 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             gameCamera.transform.position+=new Vector3(Mathf.Sin(Time.time*55f)*.06f,-.22f-Mathf.Sin(Time.time*47f)*.05f,0)*cameraKick;
         }
         float roll=Mathf.Clamp((player.position.x-gameCamera.transform.position.x/.78f)*CameraRoll,-MaxCameraRoll,MaxCameraRoll);
-        gameCamera.transform.rotation=Quaternion.Slerp(gameCamera.transform.rotation,Quaternion.Euler(10,0,roll),1f-Mathf.Exp(-6f*Time.deltaTime));
-        gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,atmosphere.fov+(boostLeft>0?7:0),Time.deltaTime*3f);
+        gameCamera.transform.rotation=Quaternion.Slerp(gameCamera.transform.rotation,Quaternion.Euler(CameraPitch,0,roll),1f-Mathf.Exp(-6f*Time.deltaTime));
+        gameCamera.fieldOfView=Mathf.Lerp(gameCamera.fieldOfView,atmosphere.fov+WideLens+(boostLeft>0?7:0),Time.deltaTime*3f);
+        // taller only: the aspect shrinks with the wider angle so nothing extra is drawn off to the sides
+        float cullFov=gameCamera.fieldOfView+CurveCullMargin;
+        float cullAspect=gameCamera.aspect*Mathf.Tan(gameCamera.fieldOfView*.5f*Mathf.Deg2Rad)/Mathf.Tan(cullFov*.5f*Mathf.Deg2Rad);
+        gameCamera.cullingMatrix=Matrix4x4.Perspective(cullFov,cullAspect,gameCamera.nearClipPlane,gameCamera.farClipPlane)*gameCamera.worldToCameraMatrix;
     }
 
     // White spray fans off both sides of the hull plus a rooster tail, as in the gameplay render.
+    const float SprayTravel=14f, SprayMaxScreenSize=.1f;
+
     void CreateSpray()
     {
         var mat=splashMaterial?splashMaterial:sprayMaterial;
@@ -786,11 +807,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if(splashMaterial)
         {
             // Hull spray: low wide sheets peeling off both chines, a tall rooster tail and fine bow mist.
-            sprays.Add(MakeSpray("Left spray sheet",new Vector3(-.6f,-.28f,-.1f),new Vector3(-1f,.5f,-.7f),55,5.2f,.75f,mat,.45f,.7f,22,.95f));
-            sprays.Add(MakeSpray("Right spray sheet",new Vector3(.6f,-.28f,-.1f),new Vector3(1f,.5f,-.7f),55,5.2f,.75f,mat,.45f,.7f,22,.95f));
-            sprays.Add(MakeSpray("Rooster tail",new Vector3(0,-.25f,-1.35f),new Vector3(0,.85f,-1f),45,6.2f,1.05f,mat,.6f,1f,9,.9f));
+            sprays.Add(MakeSpray("Left spray sheet",new Vector3(-.62f,-.28f,.1f),new Vector3(-1f,.55f,-.7f),85,5.6f,.95f,mat,.4f,.7f,26,.95f));
+            sprays.Add(MakeSpray("Right spray sheet",new Vector3(.62f,-.28f,.1f),new Vector3(1f,.55f,-.7f),85,5.6f,.95f,mat,.4f,.7f,26,.95f));
+            sprays.Add(MakeSpray("Rooster tail",new Vector3(0,-.25f,-1.35f),new Vector3(0,.85f,-1f),45,6.2f,.9f,mat,.4f,.65f,9,.9f));
             sprays.Add(MakeSpray("Bow mist",new Vector3(0,-.3f,.9f),new Vector3(0,.35f,-1f),30,2.2f,.45f,mat,.3f,.55f,55,.45f));
-            sprays.Add(MakeSpray("Wake droplets",new Vector3(0,-.25f,-1.2f),new Vector3(0,.6f,-1f),70,4f,.22f,mat,.5f,.9f,35,1f));
+            sprays.Add(MakeSpray("Wake droplets",new Vector3(0,-.25f,-1.2f),new Vector3(0,.6f,-1f),70,4f,.22f,mat,.3f,.55f,35,1f));
         }
         else
         {
@@ -825,7 +846,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         var fade=ps.colorOverLifetime; fade.enabled=true;
         var gradient=new Gradient(); gradient.SetKeys(new[]{new GradientColorKey(Color.white,0),new GradientColorKey(Color.white,1)},new[]{new GradientAlphaKey(.9f,0),new GradientAlphaKey(.6f,.5f),new GradientAlphaKey(0,1)});
         fade.color=gradient;
-        var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=material;
+        var renderer=go.GetComponent<ParticleSystemRenderer>(); renderer.sharedMaterial=material; renderer.maxParticleSize=SprayMaxScreenSize;
         ps.Play();
         return ps;
     }
@@ -974,7 +995,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         scenery=new TropicalScenery(Make,sideRockPrefab,dockBarrelPrefab,pirateShipPrefab,BiomeCount,shoreModels);
         scenery.BuildBackdrop();
         SpawnLandmarksUpTo(ShoreAhead);
-        SpawnShoreUpTo(ShoreAhead);
+        SpawnShoreUpTo(ShoreChunkAhead);
         SpawnCaveUpTo(ShoreAhead);
     }
 
@@ -1025,6 +1046,14 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     }
 
     // Shore chunks take the biome of the spot they spawn at, so the next biome is visible ahead before the player arrives.
+    const float ShoreChunkAhead=150f;    // landmarks still appear further out; small shore chunks are barely visible past this
+    const float ShoreGapMin=15f,ShoreGapMax=22f,OpenShoreGapMin=17f,OpenShoreGapMax=27f;
+    const int ShoreChunkCopies=3;
+
+    // Only the harbor biomes are packed tight; the others keep their open coast and the draw calls that saves.
+    static float ShoreGap(EnvironmentPreset biome)=>biome==EnvironmentPreset.TropicalRun||biome==EnvironmentPreset.PirateCove
+        ?Random.Range(ShoreGapMin,ShoreGapMax):Random.Range(OpenShoreGapMin,OpenShoreGapMax);
+
     void SpawnShoreUpTo(float limit)
     {
         if(scenery==null) return;
@@ -1032,10 +1061,10 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             while(nextShoreAt[s]<limit)
             {
                 var biome=BiomeAt(nextShoreAt[s]);
-                if(ShoreReserved(s==0?-1:1,nextShoreAt[s])){ nextShoreAt[s]+=Random.Range(17f,27f); continue; }
+                if(ShoreReserved(s==0?-1:1,nextShoreAt[s])){ nextShoreAt[s]+=ShoreGap(biome); continue; }
                 var chunk=scenery.SpawnShore(movingWorld,s==0?-1:1,nextShoreAt[s],(int)biome,BiomeNames[(int)biome]);
                 if(chunk) spawned.Add(chunk);
-                nextShoreAt[s]+=Random.Range(17f,27f);
+                nextShoreAt[s]+=Mathf.Max(ShoreGap(biome),scenery.LastChunkLength);
             }
     }
 
@@ -1345,7 +1374,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         {
             var go=spawned[i];
             if(go==null){ spawned.RemoveAt(i); continue; }
-            if(go.transform.position.z<-30f){ Destroy(go); spawned.RemoveAt(i); }
+            if(go.transform.position.z<-30f){ if(scenery==null||!scenery.Recycle(go)) Destroy(go); spawned.RemoveAt(i); }
         }
     }
 

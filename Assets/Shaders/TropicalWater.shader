@@ -21,6 +21,7 @@ Shader "JetskiRunner/TropicalWater"
             #pragma fragment frag
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
+            #include "RunnerCurve.cginc"
             fixed4 _Shallow, _Deep, _Far, _Trough, _Sky;
             float4 _SunDir;
             float4 _SkyTop, _SunColor, _PlayerPos;
@@ -77,11 +78,12 @@ Shader "JetskiRunner/TropicalWater"
                 v2f o;
                 float3 world = mul(unity_ObjectToWorld, v.vertex).xyz;
                 world.y += Waves(Flow(world), _WavePhase).x;
-                o.world = world;
-                o.position = UnityWorldToClipPos(world);
+                o.world = world;    // the waves and foam are worked out on the flat water, only the position bends
+                float3 bent = CurveWorld(world);
+                o.position = UnityWorldToClipPos(bent);
                 UNITY_TRANSFER_FOG(o, o.position);
                 o.screen = ComputeScreenPos(o.position);
-                COMPUTE_EYEDEPTH(o.screen.z);
+                o.screen.z = -mul(UNITY_MATRIX_V, float4(bent, 1)).z;
                 return o;
             }
 
@@ -105,7 +107,10 @@ Shader "JetskiRunner/TropicalWater"
                 fixed3 col = lerp(_Shallow.rgb, _Deep.rgb, saturate(dist / 60));
                 col = lerp(col, _Trough.rgb, patches * .6 * saturate(dist / 12));
                 col = lerp(col, _Far.rgb, saturate((dist - 70) / 160));
-                col += _Shallow.rgb * Caustic(q, t) * _Caustics * .2 * saturate(1 - dist / 80);
+                col += _Shallow.rgb * Caustic(q, t) * _Caustics * .09 * saturate(1 - dist / 60);
+                // brighter aqua over the shallows along both shores, deep blue down the lanes
+                float reef = smoothstep(4.2, 8.5, abs(i.world.x)) * (1 - smoothstep(60, 170, dist));
+                col = lerp(col, _Shallow.rgb * float3(1.15, 1.42, 1.22) + float3(.02, .05, .04), reef * .72);
                 // crests catch light, troughs go darker
                 col *= 0.86 + saturate(waves.x * 6 + .5) * .26;
 
@@ -124,7 +129,7 @@ Shader "JetskiRunner/TropicalWater"
                 col *= .84 + diffuse * .2;
                 // HDR sun sparkle (values above 1 feed the bloom), wide sheen under it
                 float rs = saturate(dot(refl, sun));
-                col += _SunColor.rgb * (pow(rs, 900) * 1.8 + pow(rs, 90) * .05);
+                col += _SunColor.rgb * (pow(rs, 420) * .42 * saturate(dist / 16) + pow(rs, 60) * .035);
 
                 // wind-whipped whitecaps on the crests, more of them in rough biomes
                 float caps = Noise(q * float2(1.5, .9) + t * float2(.1, .28)) * .5 + Noise(q * 3.7 - t * .4) * .3 + Noise(q * 9.1 + t * .3) * .2;
@@ -141,7 +146,7 @@ Shader "JetskiRunner/TropicalWater"
                 float gap = max(sceneZ - i.screen.z, 0) * saturate(dot(n, view) + .15);
                 col *= lerp(.82, 1, saturate(gap / .55));
                 float lace = Noise(q * 5 + t * float2(.3, -.5));
-                float contact = (1 - smoothstep(.02, .32 + lace * .3, gap)) * step(gap, 2);
+                float contact = (1 - smoothstep(.02, .42 + lace * .4, gap)) * step(gap, 2);
                 col = lerp(col, fixed3(.95, .99, 1), contact * .88);
 
                 // jetski wake: two broken foam lines spreading behind the player and a churned centre
@@ -152,7 +157,7 @@ Shader "JetskiRunner/TropicalWater"
                 float sideFoam = (1 - smoothstep(.05, .28, edge)) * broken * wakeRange;
                 float centre = (1 - smoothstep(.1, .7, abs(i.world.x - _PlayerX))) * (1 - smoothstep(1, 9, back)) * step(0, back);
                 float centreFoam = centre * smoothstep(.45, .8, Noise(float2(i.world.x * 6, q.y * 4)));
-                col = lerp(col, fixed3(.93, .98, 1), saturate(sideFoam * .9 + centreFoam * .85));
+                col = lerp(col, fixed3(.93, .98, 1), saturate(sideFoam * .45 + centreFoam * .6));
 
                 fixed4 result = fixed4(col, 1);
                 UNITY_APPLY_FOG(i.fogCoord, result);

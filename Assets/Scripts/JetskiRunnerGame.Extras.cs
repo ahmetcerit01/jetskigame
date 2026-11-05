@@ -487,7 +487,7 @@ public sealed partial class JetskiRunnerGame
     const int WakeSegments = 30, WakeRibbons = 3;
     const float WakeStep = 1.1f, WakeY = -.27f;
     static readonly (float start, float spread, float width, float strength)[] WakeShape =
-        { (-.55f, -.15f, .15f, 1f), (.55f, .15f, .15f, 1f), (0f, 0f, .12f, .9f) };
+        { (-.6f, -.2f, .2f, .7f), (.6f, .2f, .2f, .7f), (0f, 0f, .17f, .45f) };
     readonly float[] wakeHistory = new float[WakeSegments + 1];
     float wakeMark;
     Mesh wakeMesh; Vector3[] wakeVertices; Material wakeMaterial; Transform glow; Material glowMaterial;
@@ -505,7 +505,7 @@ public sealed partial class JetskiRunnerGame
             {
                 int v = (r * (WakeSegments + 1) + i) * 2;
                 float along = i / (float)WakeSegments;
-                byte alpha = (byte)(255 * WakeShape[r].strength * Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, along * 7f)) * (1f - along * along));
+                byte alpha = (byte)(255 * WakeShape[r].strength * Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, along * 7f)) * Mathf.Pow(1f - along, 1.6f));
                 uv[v] = new Vector2(-1, i * WakeStep + r * 37f); uv[v + 1] = new Vector2(1, i * WakeStep + r * 37f);
                 colors[v] = colors[v + 1] = new Color32(255, 255, 255, alpha);
                 if (i == WakeSegments) continue;
@@ -730,11 +730,12 @@ public sealed partial class JetskiRunnerGame
             Part(go, PrimitiveType.Cylinder, Vector3.zero, new Vector3(.85f, .06f, .85f), gold, new Vector3(90, 0, 0));
             var label = new GameObject("x2"); label.transform.SetParent(go.transform, false);
             label.transform.localPosition = new Vector3(0, 0, -.08f);
+            var font = Resources.Load<Font>("Fonts/JetwakeBrush");
             var tm = label.AddComponent<TextMesh>();
+            // the font comes first: text set before it makes Unity rasterise the built-in font in mid-run
+            if (font) { tm.font = font; label.GetComponent<MeshRenderer>().sharedMaterial = RunnerCurve.TextMaterial(font); }
             tm.text = "x2"; tm.fontSize = 64; tm.characterSize = .07f; tm.anchor = TextAnchor.MiddleCenter; tm.alignment = TextAlignment.Center;
             tm.color = new Color(.35f, .15f, 0f);
-            var font = Resources.Load<Font>("Fonts/JetwakeBrush");
-            if (font) { tm.font = font; label.GetComponent<MeshRenderer>().sharedMaterial = font.material; }
             label.transform.localRotation = Quaternion.Euler(0, 180, 0);
         }
         if (bubbleMaterial)

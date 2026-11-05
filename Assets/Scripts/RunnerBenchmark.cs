@@ -94,7 +94,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
 
     // What a phone build has to meet.
     const float BudgetFps = 58f, BudgetFrameMs = 50f; const int BudgetDrawCalls = 500;
-    static readonly int[] ComparisonShots = { 450, 1350, 2250, 3150, 3600, 4050 };
+    static readonly int[] ComparisonShots = { 60, 170, 280, 390, 450, 1350, 2250, 3150, 3600, 4050 };
     readonly StringBuilder shotLog = new();
     string shotDir;
     int shot;
@@ -115,6 +115,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
 #endif
         Application.runInBackground = true;
         shotDir = Arg("-benchmarkShotDir");
+        Font.textureRebuilt += f => { if (game) spikes.Add($"  font atlas rebuilt at {game.DistanceTravelled:F0} m ({f.name}, {f.material.mainTexture.width}x{f.material.mainTexture.height})\n"); };
         if (shotDir != null) Directory.CreateDirectory(shotDir);
         if (Debug.isDebugBuild)
         {

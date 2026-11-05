@@ -77,6 +77,20 @@ public sealed class TropicalScenery
             templates[1].Add(BuildBoulders()); templates[1].Add(BuildRockArch());
         }
         else { templates[1].Add(BuildDock(true)); templates[1].Add(BuildDock(true)); templates[1].Add(BuildHarborTower()); templates[1].Add(BuildCliff(0)); }
+        if (models.Count > 0)
+        {
+            docks = Glow(make("Dock boards", Color.white, 0, .18f), Color.black);
+            docks.mainTexture = BoardTexture();
+            var harbor = new[] { BuildHarborDock(0), BuildHarborDock(1) };
+            templates[0].AddRange(harbor); templates[1].AddRange(harbor);
+            if (shipPrefab)
+            {
+                var moored = new[] { BuildMooredShip(0), BuildMooredShip(1) };
+                templates[0].AddRange(moored); templates[1].AddRange(moored);
+            }
+            var pool = templates[0].Concat(templates[1]).Distinct().ToList();
+            for (int i = 0; i < Stretches.Length; i++) stretches[i] = pool.Where(t => Stretches[i].Contains(t.name)).ToList();
+        }
         // 2 Cave passage: walls come from the tunnel segments, no shore chunks.
         // 3 Volcanic zone
         templates[3].Add(BuildBasaltCliff(0)); templates[3].Add(BuildBasaltCliff(1)); templates[3].Add(BuildLavaMountain(1f, 0f));
@@ -93,6 +107,22 @@ public sealed class TropicalScenery
         return m;
     }
 
+    // The first two biomes run through themed stretches instead of one random mix.
+    const float StretchLength = 110f;
+    static readonly string[][] Stretches =
+    {
+        new[] { "Harbor dock", "Pirate beach", "Pirate camp" },
+        new[] { "Palm cove", "Palm grove", "Sile lighthouse" },
+        new[] { "Moored ship", "Shipwreck", "Harbor dock", "Palm cove" },
+        new[] { "Coast cliff", "Cliff corner", "Rock arch", "Boulders" },
+    };
+    readonly List<GameObject>[] stretches = new List<GameObject>[Stretches.Length];
+    readonly Dictionary<GameObject, float> lengths = new();
+    Material docks;
+
+    // Metres the last spawned chunk needs along the shore; 0 when it has no fixed length.
+    public float LastChunkLength { get; private set; }
+
     const float LighthouseSpacing = 180f;
     float lastLighthouseZ = -LighthouseSpacing;
 
@@ -101,6 +131,7 @@ public sealed class TropicalScenery
     public GameObject SpawnShore(Transform parent, int side, float z, int biome, string biomeName)
     {
         var set = templates[biome];
+        if (biome <= 1 && stretches[0] != null) set = stretches[Mathf.Max(0, Mathf.FloorToInt(z / StretchLength)) % stretches.Length];
         if (set.Count == 0) return null;
         var template = set[Random.Range(0, set.Count)];
         // a landmark has to stay rare: never within sight of the previous lighthouse
@@ -109,14 +140,65 @@ public sealed class TropicalScenery
             if (z - lastLighthouseZ < LighthouseSpacing) { while (template.name == "Sile lighthouse" && set.Count > 1) template = set[Random.Range(0, set.Count)]; }
             else lastLighthouseZ = z;
         }
-        var chunk = Object.Instantiate(template, parent);
+        var chunk = Rent(template, parent);
         chunk.name = "Shore | " + biomeName + " | " + template.name;
-        chunk.transform.localPosition = new Vector3(side * Random.Range(9.5f, 12f), -.42f, z);
+        chunk.transform.localPosition = new Vector3(side * Random.Range(8.2f, 9.6f), -.42f, z);
         // mirrored rather than turned round, so what faces the lanes and the camera on the right does on the left too
         float scale = Random.Range(.9f, 1.15f);
         chunk.transform.localRotation = Quaternion.identity;
         chunk.transform.localScale = new Vector3(side < 0 ? -scale : scale, scale, scale);
+        LastChunkLength = lengths.TryGetValue(template, out var length) ? length * scale + 1f : 0f;
         return chunk;
+    }
+
+    // Shore chunks hold dozens of objects, so they are reused instead of being created while the player is racing.
+    readonly Dictionary<GameObject, Stack<GameObject>> pool = new();
+    readonly Dictionary<GameObject, GameObject> poolOwner = new();
+    Transform poolRoot;
+
+    Transform PoolRoot
+    {
+        get
+        {
+            if (!poolRoot) { poolRoot = new GameObject("Shore chunk pool").transform; poolRoot.gameObject.SetActive(false); }
+            return poolRoot;
+        }
+    }
+
+    GameObject Rent(GameObject template, Transform parent)
+    {
+        if (pool.TryGetValue(template, out var free) && free.Count > 0)
+        {
+            var chunk = free.Pop();
+            chunk.transform.SetParent(parent, false);
+            chunk.SetActive(true);
+            return chunk;
+        }
+        var made = Object.Instantiate(template, parent);
+        poolOwner[made] = template;
+        return made;
+    }
+
+    // Returns a shore chunk to the pool; false when the object did not come from it.
+    public bool Recycle(GameObject chunk)
+    {
+        if (!poolOwner.TryGetValue(chunk, out var template)) return false;
+        if (!pool.TryGetValue(template, out var free)) pool[template] = free = new Stack<GameObject>();
+        chunk.transform.SetParent(PoolRoot, false);
+        free.Push(chunk);
+        return true;
+    }
+
+    // Behind the loading screen: enough copies of every chunk for one full view of the shore.
+    public void FillPool(int perTemplate)
+    {
+        foreach (var template in AllTemplates.Distinct())
+            for (int i = 0; i < perTemplate; i++)
+            {
+                var made = Object.Instantiate(template, PoolRoot);
+                poolOwner[made] = template;
+                Recycle(made);
+            }
     }
 
     const string VolcanoModel = "38-volcano", LavaMountainModel = "39-lava-mountain";
@@ -637,6 +719,114 @@ public sealed class TropicalScenery
         Place(p, "23-lantern-post", 3.8f, -2f, 230f, 1f); Place(p, "15-crate", 4.2f, 3.6f, 195f, 1.1f);
         Plant(p, 83, new Rect(-1f, -6f, 12f, 12f), 3, 3, 5, 14);
         return p.root;
+    }
+
+    // ---------- harbor stretches ----------
+
+    const float DockLength = 19f, DockTop = 1.18f, DockInner = -2f, DockOuter = 3.4f;
+
+    // Worn boards with dark gaps; one texture on the whole deck keeps a dock to a single draw call.
+    static Texture2D BoardTexture()
+    {
+        const int w = 128, h = 256, boards = 6;
+        var t = new Texture2D(w, h, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+        {
+            float v = y / (float)h * boards;
+            int board = Mathf.FloorToInt(v);
+            float seam = Mathf.Abs(v - board - .5f) * 2f;
+            float grain = Mathf.PerlinNoise(x * .03f + board * 7.3f, y * .35f) * .6f + Mathf.PerlinNoise(x * .12f, y * .9f + board) * .4f;
+            float tone = .72f + (board * 37 % 11) / 11f * .28f;
+            var c = Color.Lerp(new Color(.34f, .19f, .09f), new Color(.72f, .47f, .25f), grain) * tone;
+            t.SetPixel(x, y, Color.Lerp(c, new Color(.08f, .045f, .025f), Mathf.SmoothStep(.86f, .97f, seam)));
+        }
+        t.Apply();
+        return t;
+    }
+
+    void OnDeck(Plot p, string name, float x, float z, float yaw, float scale, float y = DockTop, bool shadow = false)
+    {
+        if (!models.TryGetValue(name, out var prefab)) return;
+        var rot = Quaternion.Euler(0, yaw, 0);
+        var (anchor, _) = Footprint(prefab);
+        var offset = rot * (anchor * scale);
+        var t = Object.Instantiate(prefab, p.T).transform;
+        t.localPosition = new Vector3(x - offset.x, y - offset.y - .02f, z - offset.z);
+        t.localRotation = rot; t.localScale = Vector3.one * scale;
+        if (!shadow) foreach (var r in t.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    GameObject BuildHarborDock(int variant)
+    {
+        var p = NewPlot("Harbor dock");
+        lengths[p.root] = DockLength;
+        Ground(p, "14-sandy-shore", DockOuter + 4.5f, 0f, variant * 140f, 1.3f, TileY);
+        float width = DockOuter - DockInner, mid = (DockInner + DockOuter) / 2f;
+        Primitive("Dock deck", PrimitiveType.Cube, p.T, new Vector3(mid, DockTop - .13f, 0), new Vector3(width, .26f, DockLength), docks);
+        Primitive("Dock beam", PrimitiveType.Cube, p.T, new Vector3(DockInner + .05f, DockTop - .38f, 0), new Vector3(.3f, .36f, DockLength), charred);
+        for (int i = 0; i < 5; i++)
+        {
+            float z = (i - 2) * (DockLength - 1.2f) / 4f;
+            Primitive("Dock pile", PrimitiveType.Cylinder, p.T, new Vector3(DockInner + .05f, .25f, z), new Vector3(.42f, 1.15f, .42f), trunk);
+            Primitive("Dock pile", PrimitiveType.Cylinder, p.T, new Vector3(DockOuter - .4f, .25f, z), new Vector3(.36f, 1.05f, .36f), trunk);
+        }
+        // a mooring post stands proud of every second pile, tied off with rope
+        foreach (float z in new[] { -6.5f, 6.5f })
+        {
+            Primitive("Mooring post", PrimitiveType.Cylinder, p.T, new Vector3(DockInner + .05f, DockTop + .35f, z), new Vector3(.32f, .55f, .32f), trunk);
+            OnDeck(p, "18-rope-coil", DockInner + .75f, z + .9f, 40f, .8f);
+        }
+        float flip = variant == 0 ? 1f : -1f;
+        OnDeck(p, "23-lantern-post", DockInner + .45f, -2.6f * flip, 250f, 1.05f, DockTop, true);
+        OnDeck(p, "23-lantern-post", DockInner + .45f, 8.2f * flip, 250f, 1.05f, DockTop, true);
+        OnDeck(p, "15-crate", 1.1f, 3f * flip, 200f, 1.2f, DockTop, true);
+        OnDeck(p, "15-crate", 2.4f, 3.4f * flip, 170f, 1f);
+        OnDeck(p, "15-crate", 1.5f, 3.2f * flip, 215f, .85f, DockTop + 1f);
+        OnDeck(p, "16-barrel-closed", .3f, 5.2f * flip, 215f, 1.05f, DockTop, true);
+        OnDeck(p, "16-barrel-closed", 1.3f, 5.9f * flip, 90f, .95f);
+        OnDeck(p, "17-barrel-open", .2f, -5.6f * flip, 215f, 1f, DockTop, true);
+        OnDeck(p, "16-barrel-closed", 1.2f, -6.2f * flip, 30f, 1f);
+        OnDeck(p, "24-treasure-chest", .9f, -1.2f * flip, 225f, 1.05f);
+        OnDeck(p, "22-pirate-banner", DockOuter - .6f, -3.4f * flip, 240f, .95f, DockTop, true);
+        OnDeck(p, "19-wood-fence", DockOuter - .35f, 3.5f * flip, 270f, 1f);
+        Place(p, "23-lantern-post", DockOuter + 1.2f, -7.4f * flip, 230f, 1.1f);
+        Plant(p, 151 + variant * 13, new Rect(DockOuter + .6f, -8.5f, 9f, 17f), 3, 5, 6, 12);
+        return p.root;
+    }
+
+    // Size and centre of a prefab in its own space, from mesh bounds; works while the prefab is not in the scene.
+    static Bounds MeshBounds(GameObject prefab)
+    {
+        var b = new Bounds(); bool any = false;
+        foreach (var f in prefab.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (!f.sharedMesh) continue;
+            var m = prefab.transform.worldToLocalMatrix * f.transform.localToWorldMatrix;
+            var e = f.sharedMesh.bounds;
+            for (int i = 0; i < 8; i++)
+            {
+                var c = m.MultiplyPoint3x4(e.center + Vector3.Scale(e.extents, new Vector3((i & 1) * 2 - 1, (i & 2) - 1, (i & 4) / 2 - 1)));
+                if (any) b.Encapsulate(c); else { b = new Bounds(c, Vector3.zero); any = true; }
+            }
+        }
+        return b;
+    }
+
+    GameObject BuildMooredShip(int variant)
+    {
+        const float Length = 21f, Sunk = .11f;
+        var root = Chunk("Moored ship");
+        lengths[root] = Length;
+        var b = MeshBounds(shipPrefab);
+        float long_ = Mathf.Max(b.size.x, b.size.z), scale = Length / long_;
+        var ship = Object.Instantiate(shipPrefab, root.transform);
+        ship.name = "Moored pirate ship";
+        ship.transform.localScale = shipPrefab.transform.localScale * scale;
+        ship.transform.localRotation = Quaternion.Euler(0, variant == 0 ? 0f : 180f, 0);
+        float across = Mathf.Min(b.size.x, b.size.z) * scale;
+        ship.transform.localPosition = new Vector3(across / 2f - 1.6f, -b.min.y * scale - b.size.y * scale * Sunk, variant == 0 ? -b.center.z * scale : b.center.z * scale);
+        foreach (var c in ship.GetComponentsInChildren<Collider>(true)) Object.Destroy(c);
+        return root;
     }
 
     // The Sile lighthouse on its own green islet: tall enough to be spotted from far down the run.
