@@ -54,14 +54,19 @@ public sealed class PirateRider : MonoBehaviour
     public void Revive()
     {
         thrown = false; animator.Rebind(); animator.Update(0f); handWeight = 1f;
-        if (flying || landed) { transform.localPosition = seatedPosition; transform.localRotation = seatedRotation; }
+        if (flying || landed)
+        {
+            transform.SetParent(seatedParent, false);
+            transform.localPosition = seatedPosition; transform.localRotation = seatedRotation; transform.localScale = seatedScale;
+        }
         flying = landed = false;
     }
 
     // Flung off the jetski: an arc with a tumble, a splash where it hits the water, then floating there.
     const float ThrowGravity = 19f, FloatDepth = .55f, FloatBob = .07f;
     bool flying, landed;
-    Vector3 flightVelocity, flightSpin, seatedPosition;
+    Vector3 flightVelocity, flightSpin, seatedPosition, seatedScale;
+    Transform seatedParent;
     Quaternion seatedRotation;
     float waterLevel;
     System.Action<Vector3> onSplash;
@@ -69,9 +74,18 @@ public sealed class PirateRider : MonoBehaviour
     public void Throw(Vector3 velocity, float water, System.Action<Vector3> splash)
     {
         if (flying || landed) return;
-        seatedPosition = transform.localPosition; seatedRotation = transform.localRotation;
+        seatedPosition = transform.localPosition; seatedRotation = transform.localRotation; seatedScale = transform.localScale;
+        seatedParent = transform.parent; transform.SetParent(null, true);   // from here on it moves on its own, apart from the jetski
         flightVelocity = velocity; waterLevel = water; onSplash = splash; flying = true;
         flightSpin = new Vector3(Random.Range(260f, 430f), Random.Range(-90f, 90f), Random.Range(-140f, 140f));
+    }
+
+    // Where and when a throw with this velocity reaches the water.
+    public Vector3 ThrowLanding(Vector3 velocity, float water, out float seconds)
+    {
+        var from = transform.position;
+        seconds = (velocity.y + Mathf.Sqrt(velocity.y * velocity.y + 2f * ThrowGravity * Mathf.Max(0f, from.y - (water - FloatDepth)))) / ThrowGravity;
+        return new Vector3(from.x + velocity.x * seconds, water, from.z + velocity.z * seconds);
     }
 
     void UpdateFlight()

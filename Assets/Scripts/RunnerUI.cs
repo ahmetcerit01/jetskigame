@@ -338,6 +338,7 @@ public sealed class RunnerUI : MonoBehaviour
         ApplySafeArea();
         var state = game.State;
         bool inMenu = state == JetskiRunnerGame.RunState.Menu;
+        game.Audio?.SetMenu(inMenu);
         UpdateTransitions();
         Present(menu, inMenu && !showShop && !showSettings);
         Present(shop, inMenu && showShop);

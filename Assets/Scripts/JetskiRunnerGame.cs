@@ -434,8 +434,10 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         if (crashed)
         {
             UpdateChaser(0f);
+            DropCrashedJetski();
             // the empty jetski slews over and settles
-            player.rotation = Quaternion.Slerp(player.rotation, Quaternion.Euler(CrashPitch, crashSide * 14f, crashSide * CrashRoll), 1f - Mathf.Exp(-5f * Time.deltaTime));
+            var settle = cutOffBracing ? Quaternion.Euler(-9f, cutOffSide * 12f, 0f) : Quaternion.Euler(CrashPitch, crashSide * 14f, crashSide * CrashRoll);
+            player.rotation = Quaternion.Slerp(player.rotation, settle, 1f - Mathf.Exp(-5f * Time.deltaTime));
             audioFx?.SetMotion(0f, 0f, false, false, false);
             // keyboard restart once the game-over panel is up (and the continue offer has run out)
             if (OverTime > (CanRevive ? ReviveWindow : 1.2f) && RestartPressed()) Restart(false);
@@ -1258,6 +1260,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         go.transform.localScale*=fit;
     }
 
+    const float UnjumpableHeight=12f;
+
     GameObject SpawnAsset(GameObject prefab,int laneIndex,float z,TriggerKind kind)
     {
         var go=Instantiate(prefab,movingWorld);
@@ -1265,7 +1269,19 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         go.transform.localRotation=Quaternion.identity;
         if(kind>=TriggerKind.Obstacle) FitToLane(prefab,go);
         AddBoundsTrigger(go,kind>=TriggerKind.Obstacle ? .75f : 1f);
-        go.AddComponent<RunnerTrigger>().Init(this,kind);
+        var trigger=go.AddComponent<RunnerTrigger>(); trigger.Init(this,kind);
+        // ships and barrels cannot be jumped: their trigger reaches above any jump
+        if(kind==TriggerKind.Ship || (kind==TriggerKind.Obstacle && NameHas(prefab,"barrel")))
+        {
+            trigger.Unjumpable=true;
+            var box=go.GetComponent<BoxCollider>();
+            if(box)
+            {
+                float y=go.transform.lossyScale.y;
+                var size=box.size; size.y=UnjumpableHeight/y; box.size=size;
+                var centre=box.center; centre.y=UnjumpableHeight*.5f/y; box.center=centre;
+            }
+        }
         spawned.Add(go);
         return go;
     }
@@ -1352,16 +1368,50 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
 
     void Crash()
     {
-        ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f;
         crashed=true; crashTime=Time.time; duckLeft=0;
+        crashSide=Random.value<.5f?-1f:1f;
+        FinishRun();
+        if(caught && chaser)
+        {
+            BeginCutOff();
+            if(player.position.y>RideHeight+.1f) ThrowRider();   // hit in mid-air: the rider flies off now, not when the rival arrives
+            return;
+        }   // the rival cuts across first; the impact comes when it arrives
+        CrashImpact();
+    }
+
+    // A crash in mid-air: the jetski falls back to the water instead of hanging where it was hit.
+    const float CrashGravity=19f, RideHeight=.15f;
+    float crashFallSpeed;
+    bool riderThrown;
+    void DropCrashedJetski()
+    {
+        var p=player.position;
+        if(p.y<=RideHeight) return;
+        crashFallSpeed+=CrashGravity*Time.deltaTime;
+        p.y=Mathf.Max(RideHeight,p.y-crashFallSpeed*Time.deltaTime);
+        player.position=p;
+        if(p.y<=RideHeight) { LandingSplash(crashFallSpeed); crashFallSpeed=0f; }
+    }
+
+    void CrashImpact()
+    {
+        ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f;
+        ThrowRider();
+        audioFx?.Crash();
+    }
+
+    void ThrowRider()
+    {
+        if(riderThrown) return;
+        riderThrown=true;
         if(rider)
         {
             rider.Fall();
-            rider.Throw(new Vector3(Random.Range(-1.6f,1.6f),8.2f,6.2f),WaterY,at=>{ if(this) ImpactSplash(at,1.3f); });
+            var throwVelocity=new Vector3(Random.Range(-1.6f,1.6f),8.2f,6.2f);
+            if(!caught && chaser) BeginRideToRider(rider.ThrowLanding(throwVelocity,WaterY,out float flight),flight);
+            rider.Throw(throwVelocity,WaterY,at=>{ if(this) ImpactSplash(at,1.3f); });
         }
-        crashSide=Random.value<.5f?-1f:1f;
-        audioFx?.Crash();
-        FinishRun();
     }
 
     void OnTrigger(RunnerTrigger trigger)
@@ -1374,7 +1424,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             case TriggerKind.Magnet: case TriggerKind.Shield: case TriggerKind.DoubleCoins: Pickup(trigger); break;
             case TriggerKind.Ramp: if(jumpTime<0){ duckLeft=0; StartJump(jumpDuration,jumpHeight); jumpSpin=true; } break;
             case TriggerKind.Obstacle:
-                if(JumpOffset>.7f) return;           // cleared it in the air
+                if(JumpOffset>.7f && !trigger.Unjumpable) return;           // cleared it in the air
                 if(trigger.Explosive){ Explode(Vector3.Lerp(player.position,trigger.transform.position,.5f)); Destroy(trigger.gameObject); }
                 if(trigger.Rocky)
                 {
@@ -1396,7 +1446,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 Crash();
                 break;
             case TriggerKind.Ship:                     // too big to jump or smash: change lanes
-                if(AbsorbHit(trigger) || TryStumble(trigger)) return;
+                if(AbsorbHit(trigger)) return;
+                if(JumpOffset<=.7f && TryStumble(trigger)) return;   // flying into a hull is never a graze
                 Crash();
                 break;
         }
@@ -1410,6 +1461,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         JetskiRunnerGame game;
         public TriggerKind Kind { get; private set; }
         public void Init(JetskiRunnerGame owner,TriggerKind kind){ game=owner; Kind=kind; }
+        public bool Unjumpable { get; set; }
         public float SailSpeed { get; set; }
         public float Draft { get; set; }    // how deep a hull with a rounded keel sits in the water
         // Stored heading: reading it back from localEulerAngles after adding roll/pitch can flip it.

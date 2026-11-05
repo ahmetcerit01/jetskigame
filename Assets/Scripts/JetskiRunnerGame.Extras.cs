@@ -108,7 +108,8 @@ public sealed partial class JetskiRunnerGame
         if (!CanRevive) return;
         RunnerSave.Bank -= ReviveCost; RunnerSave.Save();
         revives++;
-        crashed = false; caught = false; state = RunState.Running;
+        crashed = false; caught = false; state = RunState.Running; riderThrown = false; crashFallSpeed = 0f;
+        if (cutOffT >= 0f) { cutOffT = -1f; cutOffBracing = false; chaserZ = -20f; if (chaser) chaser.gameObject.SetActive(false); }
         jumpTime = -1f; duckLeft = 0; chaseLeft = 0; stumbleSlow = 0; stumbleBlend = 0;
         graceLeft = 2.5f;
         if (rider) rider.Revive();
@@ -275,9 +276,66 @@ public sealed partial class JetskiRunnerGame
         chaser.gameObject.SetActive(false);
     }
 
+    // Caught: the rival swings past on one side and turns across your bow, and the crash happens when it gets there.
+    const float CutOffTime = .85f, CutOffImpactAt = .8f;
+    float cutOffT = -1f, cutOffSide, cutOffDuration;
+    bool cutOffBracing;
+    Vector3 cutOffStart, cutOffControl, cutOffEnd;
+
+    // Thrown off after a crash: the rival heads straight for where you will hit the water, going around your empty jetski.
+    void BeginRideToRider(Vector3 landing, float flight)
+    {
+        var p = chaser.gameObject.activeSelf ? chaser.position : new Vector3(player.position.x, WaterY, -9f);
+        cutOffSide = player.position.x > .5f ? -1f : player.position.x < -.5f ? 1f : (p.x >= player.position.x ? 1f : -1f);
+        cutOffStart = p;
+        cutOffControl = new Vector3(player.position.x + cutOffSide * 3f, WaterY, player.position.z);
+        cutOffEnd = new Vector3(landing.x + cutOffSide * 1.5f, WaterY, landing.z - .8f);
+        cutOffDuration = flight + .15f;
+        cutOffT = 0f;
+        crashTime += .5f;   // the game-over panel waits until it has arrived
+        chaser.gameObject.SetActive(true);
+    }
+
+    void BeginCutOff()
+    {
+        var p = chaser.gameObject.activeSelf ? chaser.position : new Vector3(player.position.x, WaterY, -9f);
+        cutOffStart = p;
+        cutOffDuration = CutOffTime;
+        // swing out towards the middle of the water so the turn stays on screen
+        cutOffSide = player.position.x > .5f ? -1f : player.position.x < -.5f ? 1f : (p.x >= player.position.x ? 1f : -1f);
+        cutOffControl = new Vector3(player.position.x + cutOffSide * 3.2f, WaterY, player.position.z + 2.2f);
+        cutOffEnd = new Vector3(player.position.x, WaterY, player.position.z + 3.3f);
+        cutOffT = 0f; cutOffBracing = true;
+        crashTime += CutOffTime;   // the game-over panel waits for the animation
+        chaser.gameObject.SetActive(true);
+        audioFx?.Jump();
+    }
+
+    void UpdateCutOff()
+    {
+        cutOffT = Mathf.Min(1f, cutOffT + Time.deltaTime / cutOffDuration);
+        float t = Mathf.SmoothStep(0f, 1f, cutOffT);
+        var a = Vector3.Lerp(cutOffStart, cutOffControl, t); var b = Vector3.Lerp(cutOffControl, cutOffEnd, t);
+        var p = Vector3.Lerp(a, b, t);
+        var heading = b - a;
+        p.y = WaterY + Mathf.Sin(Time.time * 6.5f + 1f) * .04f;
+        chaser.position = p;
+        chaserZ = p.z;
+        chaser.rotation = Quaternion.Euler(0, Mathf.Atan2(heading.x, heading.z) * Mathf.Rad2Deg, cutOffSide * -24f * Mathf.Sin(cutOffT * Mathf.PI));
+        if (cutOffT < 1f)
+            EmitDrops(new Vector3(p.x, WaterY + .05f, p.z) - heading.normalized, 3, -heading.normalized * 3f + Vector3.up, 2f, 2f, 4f, .3f, .8f, 0f);
+        if (cutOffBracing && cutOffT >= CutOffImpactAt)
+        {
+            cutOffBracing = false;
+            ImpactSplash(p, 1.3f);
+            CrashImpact();
+        }
+    }
+
     void UpdateChaser(float speed)
     {
         if (!chaser) return;
+        if (cutOffT >= 0f) { UpdateCutOff(); return; }
         bool show = chaseLeft > 0 || introChase > 0 || (caught && crashed);
         // just off your shoulder and a little behind: directly behind would be under the camera's view
         float targetZ = caught ? .2f : show ? (chaseLeft > 0 && chaseLeft < 2f ? -9f : -1.5f) : -20f;

@@ -1,11 +1,12 @@
 using UnityEngine;
 
-// All game audio is synthesised at start-up (no audio files): engine and water loops that follow the
+// Game audio is synthesised at start-up, except the menu music (Resources/Audio/menu-music): engine and water loops that follow the
 // jetski, an original 6/8 sea-shanty loop, and one-shot effects. Respects the RunnerSave music/sfx toggles.
 public sealed class RunnerAudio : MonoBehaviour
 {
     const int Rate = 44100;
-    AudioSource engine, water, music;
+    AudioSource engine, water, music, menuMusic;
+    bool inMenu = true;
     readonly AudioSource[] pool = new AudioSource[8];
     int next;
     AudioClip coin, splash, bigSplash, whoosh, crash, thud, powerup, shieldBreak, thunder, lava, click, buy, carve;
@@ -22,7 +23,8 @@ public sealed class RunnerAudio : MonoBehaviour
     {
         engine = Loop("Engine", EngineLoop(), .0f);
         water = Loop("Water", WaterLoop(), .0f);
-        music = Loop("Music", Shanty(), .32f);
+        music = Loop("Music", Shanty(), 0f);
+        menuMusic = Loop("Menu music", Resources.Load<AudioClip>("Audio/menu-music"), 0f);
         for (int i = 0; i < pool.Length; i++) { pool[i] = gameObject.AddComponent<AudioSource>(); pool[i].playOnAwake = false; pool[i].spatialBlend = 0; }
         coin = Clip("coin", .2f, Coin);
         splash = Clip("splash", .7f, t => Splash(t, .7f, 5200f));
@@ -42,7 +44,7 @@ public sealed class RunnerAudio : MonoBehaviour
 
     public void ApplyToggles()
     {
-        music.mute = !RunnerSave.Music;
+        music.mute = menuMusic.mute = !RunnerSave.Music;
         bool sfx = RunnerSave.Sfx;
         engine.mute = water.mute = !sfx;
         foreach (var s in pool) s.mute = !sfx;
@@ -58,8 +60,11 @@ public sealed class RunnerAudio : MonoBehaviour
         float hiss = paused || airborne ? 0f : (.05f + .17f * speedProgress) * throttle;
         water.volume = Mathf.MoveTowards(water.volume, hiss, Time.unscaledDeltaTime * 1.5f);
         water.pitch = .85f + .35f * speedProgress;
-        music.volume = Mathf.MoveTowards(music.volume, paused ? .12f : .32f, Time.unscaledDeltaTime);
+        music.volume = Mathf.MoveTowards(music.volume, inMenu ? 0f : paused ? .12f : .32f, Time.unscaledDeltaTime);
+        menuMusic.volume = Mathf.MoveTowards(menuMusic.volume, inMenu ? .32f : 0f, Time.unscaledDeltaTime);
     }
+
+    public void SetMenu(bool value) => inMenu = value;
 
     int coinStreak; float lastCoin;
     public void Coin()
