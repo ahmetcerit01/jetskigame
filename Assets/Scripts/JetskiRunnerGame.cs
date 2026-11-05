@@ -95,7 +95,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance))) + BiomeSpeedBonus;
     // 0 at the start speed, 1 at max speed; scales spacing, steering and jump timing.
     float SpeedProgress => Mathf.InverseLerp(forwardSpeed, Mathf.Max(maxSpeed, forwardSpeed + .01f), RunSpeed);
-    float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * (boostLeft > 0 ? boostMultiplier : 1f) * Mathf.Lerp(1f, StumbleSpeed, stumbleBlend);
+    float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * RunnerCatalog.SpeedFactor * (boostLeft > 0 ? boostMultiplier : 1f) * Mathf.Lerp(1f, StumbleSpeed, stumbleBlend);
     float JumpOffset => jumpTime < 0 ? 0f : 4f * activeJumpHeight * jumpTime * (1f - jumpTime);
     public float Speed => CurrentSpeed;
     public bool Airborne => jumpTime >= 0;
@@ -415,13 +415,13 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
     {
         // the jetski idles at its running spot, clear of the menu buttons
         screenZ = ScreenBase;
-        var p = player.position; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; p.z = screenZ; player.position = p;
+        var p = player.position; if (introRoot) p.x = MenuJetskiX; p.y = .15f + Mathf.Sin(Time.time * 2.2f) * .05f; p.z = screenZ; player.position = p;
         UpdateWake(); UpdateSeagulls();
         player.rotation = Quaternion.Euler(Mathf.Sin(Time.time * 1.7f) * 1.5f, 0, Mathf.Sin(Time.time * 1.3f) * 2.5f);
         foreach (var spray in sprays) { var e = spray.emission; e.enabled = false; }
         if (waterSurfaceMaterial != null) { waterSurfaceMaterial.SetFloat("_PlayerX", player.position.x); waterSurfaceMaterial.SetVector("_PlayerPos", new Vector4(player.position.x, 0, player.position.z, 0)); }
         ApplyAtmosphere();
-        FollowCamera();
+        if (introRoot) UpdateMenuPirate(); else FollowCamera();
         audioFx?.SetMotion(0f, 0f, false, false, false);
     }
 
@@ -431,6 +431,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         wavePhase += atmosphere.waveSpeed * Time.deltaTime;
         if (waterSurfaceMaterial) waterSurfaceMaterial.SetFloat("_WavePhase", wavePhase);
         if (state == RunState.Menu) { UpdateMenu(); return; }
+        if (state == RunState.Intro) { UpdateIntro(); return; }
         if (crashed)
         {
             UpdateChaser(0f);
@@ -460,7 +461,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         laneBlend = Mathf.MoveTowards(laneBlend, 1f, Time.deltaTime * 5f);
         var desired = new Vector3((lane - 1) * laneWidth, .15f, 0);
         // steering gets snappier as the run speeds up so lane changes keep pace with the traffic
-        var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
+        var position = Vector3.Lerp(player.position, desired, 1f - Mathf.Exp(-9f * RunnerCatalog.HandlingFactor * Mathf.Lerp(1f, 1.7f, SpeedProgress) * Time.deltaTime));
         position.y = .15f + JumpOffset + (jumpTime < 0 ? Mathf.Sin(Time.time * 7f) * .04f : 0f) - (Ducking ? .16f : 0f);
         // At speed the jetski pushes up the screen; a stumble knocks it back down, and it climbs again as it recovers.
         float screenTarget = ScreenBase + ScreenForward * Mathf.InverseLerp(forwardSpeed, TopSpeed, RunSpeed) - ScreenStumble * stumbleBlend + (boostLeft > 0 ? ScreenBoost : 0f);

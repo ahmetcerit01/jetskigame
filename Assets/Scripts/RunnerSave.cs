@@ -40,5 +40,18 @@ public static class RunnerSave
         _ => 3.5f + .7f * Level(u),
     };
 
+    // Market: what is owned and chosen. The first item of each kind is free.
+    public static bool Owns(string kind, int id) => id == 0 || Get("own_" + kind + id, 0) == 1;
+    public static int GetChoice(string kind) => Get("use_" + kind, 0);
+    public static void Choose(string kind, int id) { if (!Owns(kind, id)) return; Set("use_" + kind, id); Save(); }
+    public static bool TryBuyItem(string kind, int id, int price)
+    {
+        if (Owns(kind, id) || Bank < price) return false;
+        Bank -= price;
+        Set("own_" + kind + id, 1);
+        Save();
+        return true;
+    }
+
     public static void Save() { if (!Application.isBatchMode) PlayerPrefs.Save(); }
 }

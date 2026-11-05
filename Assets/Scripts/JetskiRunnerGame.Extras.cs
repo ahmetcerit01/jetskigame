@@ -5,7 +5,7 @@ using UnityEngine;
 // power-ups, ducking, jump-only and duck-only obstacles, and the biome hazards.
 public sealed partial class JetskiRunnerGame
 {
-    public enum RunState { Menu, Running, Over }
+    public enum RunState { Menu, Intro, Running, Over }
     RunState state = RunState.Running;
     public RunState State => state;
     // set before reloading the scene so "play again" skips the main menu
@@ -47,7 +47,7 @@ public sealed partial class JetskiRunnerGame
             return powers;
         }
     }
-    float BoostTime => boostDuration + .7f * RunnerSave.Level(RunnerSave.Upgrade.Boost);
+    float BoostTime => (boostDuration + .7f * RunnerSave.Level(RunnerSave.Upgrade.Boost)) * RunnerCatalog.BoostFactor;
 
     // ---------- duck / chaser ----------
     float duckLeft, stumbleSlow, stumbleBlend, chaseLeft, introChase;
@@ -64,6 +64,7 @@ public sealed partial class JetskiRunnerGame
         audioFx = RunnerAudio.Create(gameCamera.gameObject);
         ui = RunnerUI.Create(this);
         CreateChaser();
+        WearLoadout();
         CreateShieldBubble();
         CreateWake();
         CreateSeagulls();
@@ -80,11 +81,13 @@ public sealed partial class JetskiRunnerGame
         // tests and "play again" go straight into a run (-showMenu lets the UI capture see the menu in batch mode)
         bool skip = SkipMenuOnce || (Application.isBatchMode && System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-showMenu") < 0);
         SkipMenuOnce = false;
-        if (skip) BeginRun(); else state = RunState.Menu;
+        if (skip) BeginRun(true); else { state = RunState.Menu; CreateIntroScene(); }
     }
 
-    public void BeginRun()
+    public void BeginRun(bool skipIntro = false)
     {
+        if (state == RunState.Intro) return;
+        if (!skipIntro && state == RunState.Menu && introRoot) { BeginIntro(); return; }
         if (state == RunState.Running && distanceTravelled > 0) return;
         state = RunState.Running;
         introChase = 3.2f;          // the rival shows up behind you at the start, like a warning
@@ -139,6 +142,7 @@ public sealed partial class JetskiRunnerGame
 
     void UpdateExtras(float speed)
     {
+        RemoveIntroWhenPassed();
         float dt = Time.deltaTime;
         score += speed * dt * Multiplier;
         magnetLeft = Mathf.Max(0, magnetLeft - dt);
@@ -250,7 +254,7 @@ public sealed partial class JetskiRunnerGame
         int n = doubleLeft > 0 ? 2 : 1;
         coins += n; runCoins += n;
         RunnerSave.Bank += n;
-        score += 10 * n * Multiplier;
+        score += 10 * n * Multiplier * RunnerCatalog.BonusFactor;
         audioFx?.Coin();
     }
 

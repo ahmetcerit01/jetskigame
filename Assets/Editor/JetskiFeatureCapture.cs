@@ -71,7 +71,7 @@ public static class JetskiFeatureCapture
                 var panel = (GameObject)typeof(RunnerUI).GetField(a, flags).GetValue(ui);
                 typeof(RunnerUI).GetMethod("Show", flags).Invoke(ui, new object[] { panel });
             }
-            else if (a == "play") { RunnerSave.Bank = 640; game.BeginRun(); JetskiRunnerGame.TestInvulnerable = true; }   // in-memory bank: enough to offer a continue
+            else if (a == "play") { RunnerSave.Bank = 640; game.BeginRun(true); JetskiRunnerGame.TestInvulnerable = true; }   // in-memory bank: enough to offer a continue
             else if (a.StartsWith("spawn:"))
             {
                 var m = gt.GetMethod(a.Substring(6), flags);

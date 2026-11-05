@@ -153,7 +153,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
         if (frames < 190) return;   // leave the menu up long enough to photograph it
 #endif
         JetskiRunnerGame.TestInvulnerable = true;
-        game.BeginRun();
+        game.BeginRun(true);
 
         if (frames <= WarmupFrames + 190) return;
         if (Time.unscaledTime > TimeoutSeconds) { Write("TIMED OUT\n"); Application.Quit(1); enabled = false; return; }

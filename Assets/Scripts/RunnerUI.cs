@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 // uGUI front end built in code: HUD, main menu, upgrade shop, pause and game-over/continue panels.
 // Reads state from JetskiRunnerGame every frame; buttons call back into it.
-public sealed class RunnerUI : MonoBehaviour
+public sealed partial class RunnerUI : MonoBehaviour
 {
     JetskiRunnerGame game;
     Font font;
@@ -68,7 +68,7 @@ public sealed class RunnerUI : MonoBehaviour
         {
             var es = new GameObject("EventSystem"); es.AddComponent<EventSystem>(); es.AddComponent<StandaloneInputModule>();
         }
-        BuildHud(); BuildMenu(); BuildShop(); BuildSettings(); BuildPause(); BuildOver(); BuildLoading(); BuildCurtain();
+        BuildHud(); BuildMenu(); BuildShop(); BuildMarket(); BuildSettings(); BuildPause(); BuildOver(); BuildLoading(); BuildCurtain();
     }
 
     Rect appliedSafeArea;
@@ -139,6 +139,7 @@ public sealed class RunnerUI : MonoBehaviour
         playButton = (RectTransform)ArtButton(menu, "UI/oyna", new Vector2(0, 228), Anchor.Bottom, () => { game.Audio?.Click(); game.BeginRun(); }).transform;
         ArtButton(menu, "UI/gelistir", new Vector2(-205, 66), Anchor.Bottom, () => Show(shop));
         ArtButton(menu, "UI/ayarlar", new Vector2(205, 66), Anchor.Bottom, () => Show(settings));
+        TextButton(menu, "MARKET", new Vector2(-24, -450), new Vector2(240, 96), Anchor.TopRight, MarketRed, 44, OpenMarket);
     }
 
     void ToggleSound()
@@ -330,7 +331,7 @@ public sealed class RunnerUI : MonoBehaviour
     // ---------- per frame ----------
 
     GameObject shown;
-    void Show(GameObject panel) { showShop = panel == shop; showSettings = panel == settings; game.Audio?.Click(); }
+    void Show(GameObject panel) { showShop = panel == shop; showSettings = panel == settings; showMarket = panel == market; game.Audio?.Click(); }
 
     void Update()
     {
@@ -340,10 +341,12 @@ public sealed class RunnerUI : MonoBehaviour
         bool inMenu = state == JetskiRunnerGame.RunState.Menu;
         game.Audio?.SetMenu(inMenu);
         UpdateTransitions();
-        Present(menu, inMenu && !showShop && !showSettings);
+        Present(menu, inMenu && !showShop && !showSettings && !showMarket);
+        Present(market, inMenu && showMarket);
+        UpdateMarket();
         Present(shop, inMenu && showShop);
         Present(settings, inMenu && showSettings);
-        Present(hud, !inMenu);
+        Present(hud, !inMenu && state != JetskiRunnerGame.RunState.Intro);
         Present(pause, game.Paused && !game.Crashed);
         Present(over, game.Crashed && game.OverTime > 1.1f);
 
@@ -355,7 +358,7 @@ public sealed class RunnerUI : MonoBehaviour
             playButton.localScale = Vector3.one * (1f + Mathf.Sin(Time.unscaledTime * 3.2f) * .025f);
             musicLabel.text = RunnerSave.Music ? "MUSIC ON" : "MUSIC OFF";
             sfxLabel.text = RunnerSave.Sfx ? "SOUND ON" : "SOUND OFF";
-            if (!loading.activeSelf && !showShop && !showSettings && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) game.BeginRun();
+            if (!loading.activeSelf && !showShop && !showSettings && !showMarket && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) game.BeginRun();
             if (shop.activeSelf) RefreshShop();
             return;
         }
