@@ -392,7 +392,11 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                 var materials=r.sharedMaterials;
                 for(int m=0;m<materials.Length&&m<mesh.subMeshCount;m++)
                     if(materials[m]&&drawn.Add((mesh,materials[m])))
+                    {
                         Graphics.DrawMesh(mesh,at,materials[m],gameObject.layer,gameCamera,m,null,r.shadowCastingMode,true);
+                        // a second copy compiles the instanced shader variant that play will use
+                        if(materials[m].enableInstancing) Graphics.DrawMesh(mesh,at,materials[m],gameObject.layer,gameCamera,m,null,r.shadowCastingMode,true);
+                    }
             }
         }
         var effects=FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None);
@@ -625,12 +629,14 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             shader = fallbackShader;
         }
         if (shader == null) throw new System.InvalidOperationException("No compatible Unity shader is available for runtime materials.");
-        var m = new Material(shader) { name=n, color=c };
+        var m = new Material(shader) { name=n, color=c, enableInstancing=true };   // repeated clouds, palms and props share one draw call
         if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", metallic);
         if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smooth);
         if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", smooth);
         return m;
     }
+
+    const float PhoneShadowDistance=30f;
 
     void CreateLightingAndSky()
     {
@@ -639,7 +645,8 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
         RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
         sun = new GameObject("Biome sunlight").AddComponent<Light>();
         sun.type=LightType.Directional; sun.shadows=LightShadows.Soft; sun.shadowStrength=.7f; sun.shadowBias=.03f; sun.shadowNormalBias=.3f;
-        QualitySettings.shadowDistance=70;
+        // every caster inside this distance is drawn a second time, so phones only shade what is close to the jetski
+        QualitySettings.shadowDistance=QualitySettings.GetQualityLevel()>=3?70:PhoneShadowDistance;
     }
 
     void CreateOcean()
@@ -1206,6 +1213,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
                     {
                         // Standard, built from the emissive template so the variant survives shader stripping in builds
                         to=new Material(emissiveTemplate); to.EnableKeyword("_EMISSION"); to.SetTexture("_MainTex",from.HasProperty("baseColorTexture")?from.GetTexture("baseColorTexture"):from.mainTexture);
+                        to.enableInstancing=true;
                         to.SetColor("_Color",Color.white); to.SetFloat("_Metallic",.25f); to.SetFloat("_Glossiness",.6f); to.SetColor("_EmissionColor",Color.black);
                         coinMaterials[from]=to;
                     }

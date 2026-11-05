@@ -54,7 +54,7 @@ public sealed class RunnerUI : MonoBehaviour
 
     void Build()
     {
-        font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        font = Resources.Load<Font>("Fonts/JetwakeBrush");
         rounded = MakeRounded(64, 22); circle = MakeRounded(64, 32); fadeDown = MakeFade(64); solid = Sprite.Create(Texture2D.whiteTexture, new Rect(0, 0, Texture2D.whiteTexture.width, Texture2D.whiteTexture.height), new Vector2(.5f, .5f));
         var canvas = gameObject.AddComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 10;
         var scaler = gameObject.AddComponent<CanvasScaler>();
@@ -473,7 +473,7 @@ public sealed class RunnerUI : MonoBehaviour
         var go = new GameObject("Text", typeof(RectTransform), typeof(Text));
         Place(go, parent, pos, box, anchor);
         var t = go.GetComponent<Text>();
-        t.font = font; t.fontSize = size; t.fontStyle = FontStyle.Bold; t.alignment = TextAnchor.MiddleCenter;
+        t.font = font; t.fontSize = size; t.alignment = TextAnchor.MiddleCenter;
         t.color = color ?? Color.white; t.text = text; t.raycastTarget = false;
         t.horizontalOverflow = HorizontalWrapMode.Overflow; t.verticalOverflow = VerticalWrapMode.Overflow;
         var shadow = go.AddComponent<Shadow>(); shadow.effectColor = new Color(0, 0, 0, .55f); shadow.effectDistance = new Vector2(3, -4);

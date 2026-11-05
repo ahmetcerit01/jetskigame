@@ -27,7 +27,10 @@ public static class JetskiBuild
     {
         UnityEditor.OSXStandalone.UserBuildSettings.architecture = UnityEditor.Build.OSArchitecture.x64ARM64;
         var defines = new[] { "JETSKI_BENCHMARK" };
-        Build(BuildTarget.StandaloneOSX, "Build/MacBenchmark/Release/JetskiRunner.app", BuildOptions.None, defines);
+        var args = System.Environment.GetCommandLineArgs();
+        int at = System.Array.IndexOf(args, "-benchmarkVariant");
+        bool devOnly = at >= 0 && at + 1 < args.Length && args[at + 1] == "Dev";
+        if (!devOnly) Build(BuildTarget.StandaloneOSX, "Build/MacBenchmark/Release/JetskiRunner.app", BuildOptions.None, defines);
         Build(BuildTarget.StandaloneOSX, "Build/MacBenchmark/Dev/JetskiRunner.app", BuildOptions.Development, defines);
     }
 

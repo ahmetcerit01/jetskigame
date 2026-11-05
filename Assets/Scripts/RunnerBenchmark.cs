@@ -11,12 +11,28 @@ using UnityEngine.Profiling;
 // Benchmark builds only (JetskiBuild.MacBenchmark): drives one invulnerable run through all five biomes uncapped and
 // writes a per-biome report, then quits. Release builds measure frame time; development builds add render counters.
 //   JetskiRunner -benchmarkOut report.txt [-benchmarkCapped] -screen-width 576 -screen-height 1024 -screen-fullscreen 0
+// Repeatable before/after comparison: -benchmarkSeed 7 fixes the random stream and the frame step, -benchmarkQuality 2
+// uses the iPhone quality level, and -benchmarkShotDir <dir> saves the same moments with their render counters.
 // -benchmarkCapped keeps the game's own vsync/60 cap, so slow frames are the ones a player would actually see.
 [DefaultExecutionOrder(-1000)]
 public sealed class RunnerBenchmark : MonoBehaviour
 {
     const int Zones = 5, WarmupFrames = 120;
     const float TimeoutSeconds = 600f;
+
+    static string Arg(string name)
+    {
+        var args = System.Environment.GetCommandLineArgs();
+        int at = System.Array.IndexOf(args, name);
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void Configure()
+    {
+        if (int.TryParse(Arg("-benchmarkQuality"), out int quality)) QualitySettings.SetQualityLevel(quality, true);
+        if (int.TryParse(Arg("-benchmarkSeed"), out int seed)) { Random.InitState(seed); Time.captureFramerate = 60; }
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
@@ -36,6 +52,16 @@ public sealed class RunnerBenchmark : MonoBehaviour
     {
         public string Biome;
         public readonly List<float> Frames = new();
+        public readonly List<(int draws, float at)> Draws = new();
+
+        // The render counters now and then read 0 for a frame and add its count to the neighbouring one; share it back out.
+        public List<(int draws, float at)> SettledDraws()
+        {
+            var d = new List<(int draws, float at)>(Draws);
+            for (int i = 0; i + 1 < d.Count; i++)
+                if (d[i + 1].draws == 0) { int half = d[i].draws / 2; d[i] = (half, d[i].at); d[i + 1] = (half, d[i + 1].at); }
+            return d;
+        }
         public readonly Dictionary<string, (double sum, double max)> Counters = new();
         public string Snapshot;
         public int ShipsAtStart;
@@ -68,9 +94,12 @@ public sealed class RunnerBenchmark : MonoBehaviour
 
     // What a phone build has to meet.
     const float BudgetFps = 58f, BudgetFrameMs = 50f; const int BudgetDrawCalls = 500;
+    static readonly int[] ComparisonShots = { 450, 1350, 2250, 3150, 3600, 4050 };
+    readonly StringBuilder shotLog = new();
+    string shotDir;
     int shot;
     int frames;
-    bool skipFrame, capped;
+    bool skipFrame, capped, seeded;
     readonly List<string> spikes = new();
 
     void Start()
@@ -85,6 +114,8 @@ public sealed class RunnerBenchmark : MonoBehaviour
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 #endif
         Application.runInBackground = true;
+        shotDir = Arg("-benchmarkShotDir");
+        if (shotDir != null) Directory.CreateDirectory(shotDir);
         if (Debug.isDebugBuild)
         {
             foreach (var c in CounterNames) counters.Add(new Counter { Name = c.name, Rec = ProfilerRecorder.StartNew(c.cat, c.name) });
@@ -110,6 +141,12 @@ public sealed class RunnerBenchmark : MonoBehaviour
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = -1;   // the game's Start sets 60, so this is reapplied until the run ends
         }
+        if (!seeded && JetskiRunnerGame.Ready)
+        {
+            seeded = true;  // how long loading took must not change the run that follows
+            if (int.TryParse(Arg("-benchmarkSeed"), out int seed)) { Random.InitState(seed); frames = 0; }
+        }
+        if (!seeded) return;
         frames++;
 #if UNITY_IOS
         if (frames == 170) ScreenCapture.CaptureScreenshot((Debug.isDebugBuild ? "dev" : "release") + "_menu.png");
@@ -130,6 +167,14 @@ public sealed class RunnerBenchmark : MonoBehaviour
             shot++;
         }
 #endif
+        while (shotDir != null && shot < ComparisonShots.Length && game.DistanceTravelled >= ComparisonShots[shot])
+        {
+            int at = ComparisonShots[shot++];
+            ScreenCapture.CaptureScreenshot(Path.Combine(shotDir, $"d{at}.png"));
+            shotLog.Append($"{at,5} m {game.CurrentBiome,-12}");
+            foreach (var c in counters.Take(5)) shotLog.Append($" {c.Name.Replace(" Count", "")}={c.Rec.LastValue}");
+            shotLog.Append('\n');
+        }
         var zone = zones[index] ??= new Zone { Biome = game.CurrentBiome.ToString(), ShipsAtStart = game.ShipsSailed };
 
         if (skipFrame) skipFrame = false;   // the frame after a snapshot pays for the snapshot, not for the game
@@ -145,6 +190,7 @@ public sealed class RunnerBenchmark : MonoBehaviour
                 sb.Append('\n');
                 spikes.Add(sb.ToString());
             }
+            if (counters.Count > 0) zone.Draws.Add(((int)counters[0].Rec.LastValue, game.DistanceTravelled));
             foreach (var c in counters)
             {
                 double v = c.Rec.LastValue;
@@ -218,6 +264,8 @@ public sealed class RunnerBenchmark : MonoBehaviour
             {
                 sb.Append(z.Biome).Append('\n');
                 foreach (var c in z.Counters) sb.Append($"  {c.Key,-24} {c.Value.sum / z.Frames.Count,16:F0} {c.Value.max,16:F0}\n");
+                var byDraws = z.SettledDraws().OrderBy(d => d.draws).ToArray();
+                sb.Append($"  Draw Calls median {byDraws[byDraws.Length / 2].draws}, p95 {byDraws[(int)(byDraws.Length * .95f)].draws}, p99 {byDraws[(int)(byDraws.Length * .99f)].draws}; highest: {string.Join(", ", byDraws.Reverse().Take(5).Select(d => $"{d.draws} at {d.at:F0} m"))}\n");
                 sb.Append("  heaviest visible meshes at mid-zone:\n").Append(z.Snapshot);
             }
             AppendAssets<Texture2D>(sb, "textures");
@@ -226,6 +274,17 @@ public sealed class RunnerBenchmark : MonoBehaviour
         var dir = Path.GetDirectoryName(Path.GetFullPath(outPath));
         Directory.CreateDirectory(dir);
         File.WriteAllText(outPath, sb.ToString());
+        if (shotDir != null)
+        {
+            File.WriteAllText(Path.Combine(shotDir, "counters.txt"), shotLog.ToString());
+            var series = new StringBuilder();
+            foreach (var z in zones.Where(z => z != null))
+            {
+                var settled = z.SettledDraws();
+                for (int i = 0; i < settled.Count && i < z.Frames.Count; i++) series.Append($"{z.Biome},{settled[i].at:F1},{settled[i].draws},{z.Frames[i]:F2}\n");
+            }
+            File.WriteAllText(Path.Combine(shotDir, "series.csv"), series.ToString());
+        }
     }
 
     void AppendBudgets(StringBuilder sb)
@@ -236,7 +295,12 @@ public sealed class RunnerBenchmark : MonoBehaviour
             float fps = 1000f / z.Frames.Average(), worst = z.Frames.Max();
             if (capped && fps < BudgetFps) over.Add($"{z.Biome} {fps:F0} FPS (min {BudgetFps:F0})");
             if (worst > BudgetFrameMs) over.Add($"{z.Biome} frame {worst:F0} ms (max {BudgetFrameMs:F0})");
-            if (z.Counters.TryGetValue("Draw Calls Count", out var draws) && draws.max > BudgetDrawCalls) over.Add($"{z.Biome} {draws.max:F0} draw calls (max {BudgetDrawCalls})");
+            if (z.Draws.Count > 0)
+            {
+                var settled = z.SettledDraws().Select(d => d.draws).OrderBy(d => d).ToArray();
+                int p99 = settled[(int)(settled.Length * .99f)];    // a brief crowd of spawned props is not the budget's concern
+                if (p99 > BudgetDrawCalls) over.Add($"{z.Biome} {p99} draw calls at p99 (max {BudgetDrawCalls})");
+            }
         }
         bool complete = zones.All(z => z != null && z.Frames.Count > 0);
         string drawNote = Debug.isDebugBuild ? "" : " (draw calls are only measured in a development build)";

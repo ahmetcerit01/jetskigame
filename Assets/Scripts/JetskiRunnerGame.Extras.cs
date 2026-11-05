@@ -674,8 +674,8 @@ public sealed partial class JetskiRunnerGame
             label.transform.localPosition = new Vector3(0, 0, -.08f);
             var tm = label.AddComponent<TextMesh>();
             tm.text = "x2"; tm.fontSize = 64; tm.characterSize = .07f; tm.anchor = TextAnchor.MiddleCenter; tm.alignment = TextAlignment.Center;
-            tm.fontStyle = FontStyle.Bold; tm.color = new Color(.35f, .15f, 0f);
-            var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            tm.color = new Color(.35f, .15f, 0f);
+            var font = Resources.Load<Font>("Fonts/JetwakeBrush");
             if (font) { tm.font = font; label.GetComponent<MeshRenderer>().sharedMaterial = font.material; }
             label.transform.localRotation = Quaternion.Euler(0, 180, 0);
         }
