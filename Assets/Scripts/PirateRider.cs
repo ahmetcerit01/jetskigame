@@ -114,6 +114,7 @@ public sealed class PirateRider : MonoBehaviour
     void LateUpdate()
     {
         UpdateFlight();
+        UpdateHeldMagnet();
         // The editor setup places the rider from the bind pose; once the first ride frame is posed,
         // shift the whole rig so the hips sit exactly on the seat. Done once so the hand IK stays stable.
         if (settleFrames > 0 && hips && seat && Seated)
@@ -141,7 +142,62 @@ public sealed class PirateRider : MonoBehaviour
         handWeight = Mathf.MoveTowards(handWeight, Seated ? 1f : 0f, Time.deltaTime * ikBlendSpeed);
         Pin(AvatarIKGoal.LeftHand, leftGrip);
         Pin(AvatarIKGoal.RightHand, rightGrip);
+        magnetShown = Mathf.MoveTowards(magnetShown, HoldMagnet && !thrown ? 1f : 0f, Time.deltaTime * 5f);
+        if (magnetShown > 0f)
+        {
+            // the right hand leaves the grip and reaches out ahead, towards the coins
+            float eased = Mathf.SmoothStep(0f, 1f, magnetShown);
+            // aim well past arm's length from the shoulder, so the arm goes out straight
+            var shoulder = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            var reach = shoulder.position + MagnetAim * 3f + Vector3.up * Mathf.Sin(Time.time * 5f) * .06f;
+            animator.SetIKPosition(AvatarIKGoal.RightHand, Vector3.Lerp(rightGrip.position, reach, eased));
+            animator.SetIKPositionWeight(AvatarIKGoal.RightHand, Mathf.Max(handWeight, eased));
+        }
     }
+
+    // ---------- the magnet power-up: held out in the right hand while it lasts ----------
+
+    public bool HoldMagnet { get; set; }
+    float magnetShown;
+    Vector3 MagnetAim => (transform.forward * .8f + transform.right * .5f + Vector3.up * .22f).normalized;
+    Transform heldMagnet;
+
+    void UpdateHeldMagnet()
+    {
+        bool show = magnetShown > .02f;
+        if (!show) { if (heldMagnet && heldMagnet.gameObject.activeSelf) heldMagnet.gameObject.SetActive(false); return; }
+        var hand = animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.RightHand) : null;
+        if (!hand) return;
+        if (!heldMagnet) heldMagnet = BuildMagnet();
+        if (!heldMagnet.gameObject.activeSelf) heldMagnet.gameObject.SetActive(true);
+        heldMagnet.position = hand.position + MagnetAim * .1f;
+        heldMagnet.rotation = Quaternion.LookRotation(MagnetAim, Vector3.up);   // poles towards the coins, whatever the hand bone's own angle
+        heldMagnet.localScale = Vector3.one * Mathf.SmoothStep(0f, MagnetSize, magnetShown);
+    }
+
+    Transform BuildMagnet()
+    {
+        var root = new GameObject("Held magnet").transform;
+        var red = new Color(.9f, .08f, .06f);
+        foreach (float x in new[] { -.36f, .36f })
+        {
+            MagnetPart(root, PrimitiveType.Cube, new Vector3(x, 0, .22f), new Vector3(.3f, .32f, .7f), red);
+            MagnetPart(root, PrimitiveType.Cube, new Vector3(x, 0, .66f), new Vector3(.31f, .33f, .2f), Color.white);
+        }
+        MagnetPart(root, PrimitiveType.Cube, new Vector3(0, 0, -.2f), new Vector3(1.02f, .32f, .3f), red);
+        return root;
+    }
+
+    static void MagnetPart(Transform parent, PrimitiveType type, Vector3 at, Vector3 scale, Color color)
+    {
+        var part = GameObject.CreatePrimitive(type);
+        Destroy(part.GetComponent<Collider>());
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = at; part.transform.localScale = scale;
+        part.GetComponent<Renderer>().material.color = color;
+    }
+
+    const float MagnetSize = .3f;
 
     void Pin(AvatarIKGoal goal, Transform grip)
     {

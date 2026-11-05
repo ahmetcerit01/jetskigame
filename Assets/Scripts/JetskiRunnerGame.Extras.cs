@@ -146,6 +146,7 @@ public sealed partial class JetskiRunnerGame
         float dt = Time.deltaTime;
         score += speed * dt * Multiplier;
         magnetLeft = Mathf.Max(0, magnetLeft - dt);
+        if (rider) rider.HoldMagnet = magnetLeft > 0;
         shieldLeft = Mathf.Max(0, shieldLeft - dt);
         doubleLeft = Mathf.Max(0, doubleLeft - dt);
         graceLeft = Mathf.Max(0, graceLeft - dt);
@@ -211,6 +212,7 @@ public sealed partial class JetskiRunnerGame
         bool glancing = changing && lateral >= laneWidth * .4f;
         if (!glancing && !t.Light && !t.Bump) return false;
         if (t.Light) t.Knock(player.position.x);
+        Vibrate();
         audioFx?.Stumble();
         cameraKick = Mathf.Max(cameraKick, .3f);
         ImpactSplash(player.position, .5f);
@@ -221,6 +223,14 @@ public sealed partial class JetskiRunnerGame
         return true;
     }
 
+    // A buzz on the phone whenever the jetski takes a hit; other platforms have nothing to shake.
+    static void Vibrate()
+    {
+#if UNITY_IOS || UNITY_ANDROID
+        Handheld.Vibrate();
+#endif
+    }
+
     // true when a shield/grace/invulnerability absorbed the hit
     bool AbsorbHit(RunnerTrigger t)
     {
@@ -228,6 +238,7 @@ public sealed partial class JetskiRunnerGame
         if (shieldLeft > 0)
         {
             shieldLeft = 0; graceLeft = 1f;
+            Vibrate();
             audioFx?.ShieldBreak();
             ImpactSplash(t.transform.position, 1f);
             if (t.Kind != TriggerKind.Ship) t.Knock(player.position.x);

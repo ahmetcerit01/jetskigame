@@ -92,7 +92,9 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
             return Mathf.Min(TopSpeed - Mathf.Max(maxSpeed, forwardSpeed), SpeedPerBiome * (whole + Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, .12f, biomes - whole))));
         }
     }
-    float RunSpeed => forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Max(1f, speedRampDistance))) + BiomeSpeedBonus;
+    // Never settles: on top of the early ramp and biome bonus, every metre survived keeps adding a little.
+    const float EarlyRampDistance = 700f, EndlessGainPerMetre = .0025f, HighestRunSpeed = 72f;
+    float RunSpeed => Mathf.Min(HighestRunSpeed, forwardSpeed + (Mathf.Max(maxSpeed, forwardSpeed) - forwardSpeed) * (1f - Mathf.Exp(-distanceTravelled / Mathf.Min(EarlyRampDistance, speedRampDistance))) + BiomeSpeedBonus + distanceTravelled * EndlessGainPerMetre);
     // 0 at the start speed, 1 at max speed; scales spacing, steering and jump timing.
     float SpeedProgress => Mathf.InverseLerp(forwardSpeed, Mathf.Max(maxSpeed, forwardSpeed + .01f), RunSpeed);
     float CurrentSpeed => crashed || state != RunState.Running ? 0f : RunSpeed * RunnerCatalog.SpeedFactor * (boostLeft > 0 ? boostMultiplier : 1f) * Mathf.Lerp(1f, StumbleSpeed, stumbleBlend);
@@ -1432,6 +1434,7 @@ public sealed partial class JetskiRunnerGame : MonoBehaviour
 
     void CrashImpact()
     {
+        Vibrate();
         ImpactSplash(player.position+Vector3.forward*1.2f,1.6f,0f); cameraKick=.5f;
         ThrowRider();
         audioFx?.Crash();
